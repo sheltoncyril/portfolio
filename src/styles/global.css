@@ -149,9 +149,16 @@ a:hover { text-decoration-color: currentColor; }
 }
 .eyebrow { font: 500 0.8rem var(--font-mono); color: var(--muted); margin: 0 0 1.5rem; }
 .prompt { color: var(--hw); }
+/* The name never wraps, so its size is also capped at what fits between the page's padding (about 4.5em wide
+   with its italic): a larger system font size, page zoom or a fallback face can't push it off the screen.
+   The right padding is for the italic's overhang: the name is a composited layer once the script runs, and some
+   browsers clip a layer to its box, which used to take the tip off the last letter. */
 .name {
-  font: 400 clamp(calc(3.2rem / var(--name-k)), calc(12.5vw / var(--name-k)), calc(10.5rem / var(--name-k)))/0.9 var(--font-name);
-  letter-spacing: -0.02em; margin: 0 0 1.5rem; white-space: nowrap;
+  font: 400 min(
+    clamp(calc(3.2rem / var(--name-k)), calc(12.5vw / var(--name-k)), calc(10.5rem / var(--name-k))),
+    calc((100vw - 2 * var(--pad)) / (4.5 * var(--name-k)))
+  )/0.9 var(--font-name);
+  letter-spacing: -0.02em; margin: 0 0 1.5rem; white-space: nowrap; padding-right: 0.25em;
 }
 /* ?font=dm | gloock | young switches the name's face (the preview has a picker for it) */
 :root[data-name-font='dm'] { --font-name: 'DM Serif Display', 'Instrument Serif', Georgia, serif; --name-k: 1.27; }

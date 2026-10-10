@@ -370,9 +370,15 @@ function render() {
   // clientWidth, not scrollWidth: the SVG is translated off to the right, which scrollWidth would count
   const w = Math.ceil(tree!.clientWidth);
   const hgt = Math.ceil(tree!.scrollHeight);
-  svg!.setAttribute('width', String(w));
+  // The hero line starts one screen-width to the left of the tree, i.e. outside the SVG's own box, and the box
+  // is moved about with a transform. Some browsers (iOS Safari among them) clip a composited element to its
+  // box whatever `overflow` says, which would take the left of the line away; so the box reaches back that
+  // far too and everything is drawn inside it.
+  const back = treeW + 40;
+  svg!.style.left = `${-back}px`;
+  svg!.setAttribute('width', String(w + back));
   svg!.setAttribute('height', String(hgt));
-  svg!.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
+  svg!.setAttribute('viewBox', `${-back} 0 ${w + back} ${hgt}`);
   svg!.replaceChildren();
 
   const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>) => {
