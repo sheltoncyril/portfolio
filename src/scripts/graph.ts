@@ -40,6 +40,7 @@ let entries: Row[] = [];
 let treeTop = 0;
 let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
 let slid = ''; // last transform written to the SVG
+let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
 const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
 
 function init() {
@@ -125,6 +126,7 @@ function build() {
 
   const tr = rel(trace!);
   const y0 = tr.y;
+  const x0 = tr.x;
   const a = rel(rows[0].querySelector('.anchor')!);
 
   // x of the trunk and of each lane / branch, per layout and breakpoint
@@ -141,9 +143,8 @@ function build() {
     tx = a.x + 26; hx = a.x + 10; sx = a.x + 42; rx = a.x + 58;
   }
   const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
-  const r = R;
-  const right = root.clientWidth;
-  treeW = right;
+  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the name
+  treeW = root.clientWidth;
 
   const f = rel(fork!);
   const m = rel(merge!);
@@ -157,8 +158,9 @@ function build() {
     return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
   });
 
-  // the hero line is part of the tree: it runs in from the right edge and turns down into the trunk
-  segs.push({ d: `M${right},${y0} H${tx + r}`, y0, y1: y0, kind: 'trunk', hero: true });
+  // the hero line starts under the name, runs right and turns down into the trunk; it is part of the
+  // tree, so it slides in with it
+  segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
   const up = entries.filter((e) => lane(e) === 'rh');
@@ -175,7 +177,7 @@ function build() {
     const laneTop = forkY + F;
     const laneEnd = m.y + 10;
     const mergeEnd = laneEnd + F;
-    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk' });
+    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk' });
     for (const k of ['hw', 'sw'] as const) {
       const x = laneX[k];
       segs.push({ d: `M${tx},${forkY} C${tx},${forkY + F * 0.55} ${x},${forkY + F * 0.45} ${x},${laneTop}`, y0: forkY, y1: laneTop, kind: k });
@@ -193,7 +195,7 @@ function build() {
     }
   } else {
     // main runs straight down; every project forks off it, runs beside its card, and merges back
-    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk' });
+    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk' });
     for (const e of own) {
       const k = lane(e);
       const x = laneX[k];
@@ -257,8 +259,10 @@ function paint() {
   const e = dockProgress();
   paintName(e);
   paintTree(e);
-  // cards wait until the tree has finished sliding in, so none is ever seen next to a tree that's still off its mark
+  // the lane labels, the layout toggle and the cards wait until the tree has finished sliding in, so
+  // none of them is ever seen next to a tree that's still off its mark
   const placed = e >= 0.99;
+  if (placed !== forkIn) { forkIn = placed; fork!.classList.toggle('in', placed); }
   for (const s of segs) {
     if (s.hero || !s.el) continue;
     const p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));

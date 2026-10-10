@@ -208,6 +208,10 @@ a:hover { text-decoration-color: currentColor; }
 /* reveal (only once the graph script is running) */
 .graph-ready .entry:not(.in):not(:focus-within) .card,
 .graph-ready .entry:not(.in):not(:focus-within) .meta { opacity: 0; transform: translateY(8px); }
+/* lane labels and the layout toggle stay hidden until the tree has slid into place */
+.fork-labels, .fork-tools { transition: opacity 0.35s var(--ease); }
+.graph-ready .fork:not(.in):not(:focus-within) .fork-labels,
+.graph-ready .fork:not(.in):not(:focus-within) .fork-tools { opacity: 0; pointer-events: none; }
 
 /* merge + outro */
 .merge { height: 140px; max-width: var(--wrap); margin-inline: auto; padding: 0 var(--pad); position: relative; }
