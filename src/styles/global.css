@@ -83,7 +83,8 @@ a:hover { text-decoration-color: currentColor; }
 @media (max-width: 520px) { .bar nav a:nth-child(1), .bar nav a:nth-child(3), .bar nav a:nth-child(4) { display: none; } .bar nav { gap: 16px; } }
 
 /* tree + svg */
-.tree { position: relative; }
+/* the SVG waits off-screen to the right at the top of the page; clip it so it can't widen the page (body's overflow-x is the fallback) */
+.tree { position: relative; overflow-x: clip; }
 .tree-svg { position: absolute; inset: 0 auto auto 0; pointer-events: none; overflow: visible; z-index: 0; }
 .tree > section:not(.hero), .tree > ol { position: relative; z-index: 1; }
 /* .hero must not create a stacking context: the docked name inside it has to sit above the fixed top bar */
@@ -95,8 +96,6 @@ a:hover { text-decoration-color: currentColor; }
 .seg.sw { stroke: var(--sw); }
 .seg.rh { stroke: var(--rh); }
 .seg.hero { stroke-dashoffset: 0; }
-.seg.hero.intro { animation: draw 1.1s 0.5s var(--ease) both; }
-@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 .node { fill: var(--bg); stroke-width: 2; transition: fill 0.25s, transform 0.25s var(--ease); transform-box: fill-box; transform-origin: center; }
 .node.hw { stroke: var(--hw); }
 .node.sw { stroke: var(--sw); }

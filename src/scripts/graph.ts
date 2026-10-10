@@ -12,7 +12,7 @@ const MARKER = 0.62; // fraction of viewport height where the line "is drawn up 
 
 type Kind = 'trunk' | 'hw' | 'sw' | 'rh';
 type Lane = 'hw' | 'sw' | 'rh';
-interface Seg { d: string; y0: number; y1: number; kind: Kind; hero?: boolean; gate?: boolean; el?: SVGPathElement; last?: number }
+interface Seg { d: string; y0: number; y1: number; kind: Kind; hero?: boolean; el?: SVGPathElement; last?: number }
 interface Dot { x: number; y: number; kind: Kind | 'head' | 'tick'; el?: SVGElement; on?: boolean }
 interface Row { el: HTMLElement; y: number; top: number; bottom: number; on?: boolean }
 type Layout = 'branches' | 'lanes';
@@ -38,10 +38,9 @@ let segs: Seg[] = [];
 let dots: Dot[] = [];
 let entries: Row[] = [];
 let treeTop = 0;
-let first = true;
+let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
+let slid = ''; // last transform written to the SVG
 const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
-// The hero line enters from the right edge and sweeps left to the trunk as the name docks.
-const heroLine = { el: undefined as SVGPathElement | undefined, y: 0, xe: 0 };
 
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
@@ -73,7 +72,6 @@ function setLayout(l: Layout, persist: boolean) {
   );
   if (persist) {
     safe(() => localStorage.setItem('layout', l));
-    first = false;
     schedule(true);
   }
 }
@@ -145,6 +143,7 @@ function build() {
   const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
   const r = R;
   const right = root.clientWidth;
+  treeW = right;
 
   const f = rel(fork!);
   const m = rel(merge!);
@@ -158,8 +157,8 @@ function build() {
     return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
   });
 
+  // the hero line is part of the tree: it runs in from the right edge and turns down into the trunk
   segs.push({ d: `M${right},${y0} H${tx + r}`, y0, y1: y0, kind: 'trunk', hero: true });
-  Object.assign(heroLine, { y: y0, xe: tx + r });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
   const up = entries.filter((e) => lane(e) === 'rh');
@@ -176,7 +175,7 @@ function build() {
     const laneTop = forkY + F;
     const laneEnd = m.y + 10;
     const mergeEnd = laneEnd + F;
-    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk', gate: true });
+    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk' });
     for (const k of ['hw', 'sw'] as const) {
       const x = laneX[k];
       segs.push({ d: `M${tx},${forkY} C${tx},${forkY + F * 0.55} ${x},${forkY + F * 0.45} ${x},${laneTop}`, y0: forkY, y1: laneTop, kind: k });
@@ -194,7 +193,7 @@ function build() {
     }
   } else {
     // main runs straight down; every project forks off it, runs beside its card, and merges back
-    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk', gate: true });
+    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk' });
     for (const e of own) {
       const k = lane(e);
       const x = laneX[k];
@@ -209,12 +208,12 @@ function build() {
   }
   dots.push({ x: tx, y: headY, kind: 'head' });
 
-  render(first);
-  first = false;
+  render();
 }
 
-function render(intro: boolean) {
-  const w = Math.ceil(tree!.scrollWidth);
+function render() {
+  // clientWidth, not scrollWidth: the SVG is translated off to the right, which scrollWidth would count
+  const w = Math.ceil(tree!.clientWidth);
   const hgt = Math.ceil(tree!.scrollHeight);
   svg!.setAttribute('width', String(w));
   svg!.setAttribute('height', String(hgt));
@@ -231,9 +230,8 @@ function render(intro: boolean) {
   for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' });
   for (const s of segs) {
     s.last = undefined;
-    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' + (intro ? ' intro' : '') : ''}` });
+    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
   }
-  heroLine.el = segs.find((x) => x.hero)?.el;
   for (const d of dots) {
     const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;
     d.on = undefined;
@@ -258,11 +256,12 @@ function paint() {
   const still = reduce.matches;
   const e = dockProgress();
   paintName(e);
+  paintTree(e);
+  // cards wait until the tree has finished sliding in, so none is ever seen next to a tree that's still off its mark
+  const placed = e >= 0.99;
   for (const s of segs) {
     if (s.hero || !s.el) continue;
-    let p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));
-    // the trunk only starts to drop once the hero line has reached it
-    if (s.gate && !still) p = Math.min(p, clamp((e - 0.8) / 0.2));
+    const p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));
     if (p !== s.last) { s.last = p; s.el.style.strokeDashoffset = String(1 - p); }
   }
   for (const d of dots) {
@@ -270,25 +269,26 @@ function paint() {
     if (on !== d.on && d.el) { d.on = on; d.el.classList.toggle('on', on); }
   }
   for (const row of entries) {
-    const on = still || marker >= row.y - 110;
+    const on = placed && (still || marker >= row.y - 110);
     if (on !== row.on) { row.on = on; row.el.classList.toggle('in', on); }
   }
 }
 
 // The name starts big in the hero and shrinks into the top-left corner over the first stretch of
-// scroll; the line starts as a stub at the right edge and sweeps left to the trunk in step.
+// scroll; the tree slides in from the right edge over the same stretch, with the same easing.
 function dockProgress() {
   const t = clamp(scrollY / nm.dist);
   return reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
 }
 
+// The tree moves as one rigid piece: off-screen to the right at e = 0, at its normal place at e = 1.
+function paintTree(e: number) {
+  const dx = (1 - e) * treeW;
+  const t = dx > 0.5 ? `translate(${dx.toFixed(1)}px, 0)` : '';
+  if (t !== slid) { slid = t; svg!.style.transform = t; }
+}
+
 function paintName(e: number) {
-  if (heroLine.el) {
-    const full = root.clientWidth;
-    const stub = full - Math.min(full * 0.28, 360); // where the line's left end sits at the top of the page
-    const end = stub + (heroLine.xe - stub) * clamp(e / 0.8); // the sweep finishes at 80% of the dock, then the trunk takes over
-    heroLine.el.setAttribute('d', `M${full},${heroLine.y} H${Math.min(end, full - 1)}`);
-  }
   if (!nameEl) return;
   const live = nm.top - scrollY;
   const x = nm.x + (nm.tx - nm.x) * e;
