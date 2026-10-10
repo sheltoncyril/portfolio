@@ -39,6 +39,7 @@ const LEAP_COOLDOWN = 0.6; // s after a landing before scrolling can set it off 
 const LEAP_RISE = 6; // art pixels it clears the higher end of a hop by...
 const LEAP_ARC = 8; // ...plus a little more the further across it goes, up to this
 const LEAP_G = 1.5; // a hop is quicker than a plain fall: it pushes off, and the page won't wait
+const DIVE_FLAP = 0.08; // s each frame of the skydive is held for
 
 export interface PupStem {
   x: number; // the right-hand edge of the letter it hides behind, at height y...
@@ -486,7 +487,9 @@ export function createPup(host: HTMLElement) {
     feet = arc.y0 + arc.vy0 * k + 0.5 * g * k * k;
     x = arc.x0 + (arc.x1 - arc.x0) * (k / arc.T);
     vy = arc.vy0 + g * k;
-    setPose(vy < 0 ? 'run0' : 'fall');
+    // a gallop's stretch going up; coming down it skydives, legs out to the sides and ears blown up, which
+    // flutter between two frames
+    setPose(vy < 0 ? 'run0' : Math.floor(t / DIVE_FLAP) % 2 ? 'diveB' : 'diveA');
     if (t < arc.T) return;
     stand(dest);
     x = clamp(x, lo(), Math.max(lo(), hi()));
@@ -813,7 +816,7 @@ export function createPup(host: HTMLElement) {
     }
 
     if (shown.faceVis !== 'hidden') { shown.faceVis = 'hidden'; face.style.visibility = 'hidden'; }
-    if (!pose) setPose(state === 'drop' ? 'fall' : state === 'land' ? 'land' : state === 'sleep' ? 'lie' : 'sit'); // after a rebuild
+    if (!pose) setPose(state === 'drop' ? 'fall' : state === 'leap' ? 'diveA' : state === 'land' ? 'land' : state === 'sleep' ? 'lie' : 'sit'); // after a rebuild
     if (grounded()) feet = floorY();
 
     // rocking on the edge: swings out and back, a bit further each time

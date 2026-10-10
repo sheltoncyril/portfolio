@@ -62,6 +62,7 @@ export interface Pose {
   mouth?: boolean; // mouth open, tongue out
   sit?: boolean;
   lie?: boolean; // curled up asleep
+  dive?: 1 | 2; // skydiving, flat out with the legs flung to the sides; the two frames flutter
   nose?: number; // rows the head hangs down (sniffing); negative lifts it
   fy?: number; // front legs' own top and length, if they differ from the back legs (reaching, paws in the air)
   fh?: number;
@@ -91,6 +92,31 @@ export function drawBody(p: Pose = {}): Grid {
     rect(13, 9, 3, 4, 'd'); // ear lying back
     rect(17, 12, 2, 1, 'o'); // eye shut
     rect(16, 14, 6, 1, 'c'); // paws under the chin
+    return outline(g);
+  }
+
+  if (p.dive) {
+    // Skydiving: a level, slimmer body so there is room for ears blown straight up above the head and legs
+    // flung out in a fan below it, all inside the outlined part of the sprite. The second frame has the ears
+    // swap heights and the paws trail up a row.
+    const f = p.dive === 2 ? 1 : 0;
+    rect(0, 8 - f, 5, 2, 'g'); // far legs: straight back...
+    rect(15, 10 - f, 4, 2, 'g'); // ...and straight forward
+    [[3, 7], [2, 6], [2, 5], [1, 4], [2, 3]].forEach(([x, y]) => px(x, y, 'd')); // tail, up in the wind
+    rect(4, 6, 11, 5, 'b');
+    px(4, 6, '.'); px(4, 10, '.'); px(14, 10, '.');
+    rect(6, 10, 5, 1, 'c'); // belly
+    rect(12, 8, 3, 3, 'c'); // chest
+    rect(4, 6, 3, 2, 'd'); // saddle
+    rect(12, 3, 7, 6, 'b'); // head
+    px(12, 3, '.'); px(18, 3, '.');
+    rect(18, 5, 4, 3, 'b'); rect(18, 7, 4, 1, 'c'); rect(20, 5, 2, 1, 'o'); // snout, muzzle, nose
+    rect(19, 8, 2, 1, 'o'); rect(19, 9, 2, 1, 't'); // mouth open, tongue out
+    rect(16, 4, 2, 2, 'o'); // eye, wide
+    rect(13, -1 + f, 2, 4 - f, 'd'); rect(16, f ? -1 : 0, 2, f ? 4 : 3, 'd'); // ears
+    // near legs: a thigh and then a paw a step lower and further out
+    rect(3, 11, 4, 2, 'b'); rect(0, 12 - f, 4, 2, 'b'); rect(0, 12 - f, 2, 2, 'c');
+    rect(13, 11, 4, 2, 'b'); rect(16, 12 - f, 4, 2, 'b'); rect(18, 12 - f, 2, 2, 'c');
     return outline(g);
   }
 
@@ -162,6 +188,9 @@ export const POSES: Record<string, Pose> = {
   teeterA: { nose: 2, dy: 1, legs: [3, 8, 16, 13], legY: 13, legH: 2, fy: 12, fh: 3, ears: 'flat', eye: 'wide', mouth: true },
   teeterB: { nose: -1, dy: -1, legs: [4, 7, 15, 17], legY: 11, legH: 4, fy: 7, fh: 3, ears: 'high', eye: 'wide', mouth: true, tail: 'mid' },
   fall: { legs: [2, 4, 14, 12], legY: 10, legH: 3, ears: 'high', mouth: true, eye: 'wide', dy: -2 },
+  // skydiving down onto a card: legs out to the sides, ears blown up, fluttering between two frames
+  diveA: { dive: 1 },
+  diveB: { dive: 2 },
   land: { dy: 2, legY: 14, legH: 1, ears: 'flat', eye: 'shut', legs: [2, 7, 15, 12] },
   sit: { sit: true, tail: 'down' },
   sitBlink: { sit: true, tail: 'down', eye: 'shut' },
