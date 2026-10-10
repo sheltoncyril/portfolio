@@ -1,7 +1,0 @@
-{
-  // Used by `npm run deploy` (direct upload). Git-connected Pages builds ignore the deploy part.
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "sheltoncyril-portfolio",
-  "pages_build_output_dir": "./dist",
-  "compatibility_date": "2026-10-01"
-}
