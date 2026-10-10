@@ -151,16 +151,20 @@ export interface PupWorld {
   endRest: number; // x where the line turns down into the trunk once the tree is in place
   headX: number; // x the peeking head is centred on
   edgeY: number; // y of the edge the dog peeks over
+  nameEnd: number; // x of the right edge of the name; the dog keeps clear of it when there is open line beside it
   unit: number; // px per art pixel
 }
 export interface PupView {
   scrollY: number;
   treeTop: number;
   dx: number; // how far the tree is still translated to the right (the line's end moves with it)
+  width: number; // viewport width; the line runs past it while the tree is still sliding in
   still: boolean; // prefers-reduced-motion
 }
 
-type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk';
+// leave: running out of the left edge because the line has become too short to stand on; away: gone, until
+// the line is long enough again
+type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'leave' | 'away';
 
 export function createPup(host: HTMLElement) {
   const layer = document.createElement('div');
@@ -172,7 +176,7 @@ export function createPup(host: HTMLElement) {
   host.append(layer);
 
   let world: PupWorld | undefined;
-  let view: PupView = { scrollY: 0, treeTop: 0, dx: 0, still: false };
+  let view: PupView = { scrollY: 0, treeTop: 0, dx: 0, width: 0, still: false };
   let u = 0; // px per art pixel the sprite was built for
   let frames: Record<string, SVGGElement> = {};
   let art: SVGSVGElement | undefined;
@@ -198,7 +202,7 @@ export function createPup(host: HTMLElement) {
   let pose = '';
   let raf = 0;
   let last = 0;
-  const shown = { tr: '', flip: 0, clip: '', op: -1, z: '' };
+  const shown = { tr: '', flip: 0, clip: '', op: -1, z: '', vis: '' };
 
   function build() {
     if (!world) return;
@@ -238,8 +242,18 @@ export function createPup(host: HTMLElement) {
   const half = () => (W * u) / 2;
   const lineEnd = () => (world ? world.endRest + view.dx : 0);
   const lo = () => half() + 2; // the sprite's left edge stays on screen...
-  const hi = () => lineEnd() - half(); // ...and its snout stays over the line
-  const grounded = () => state === 'land' || state === 'idle' || state === 'walk';
+  // ...and so does its right edge, with its snout over the line (the line runs past the screen's edge
+  // while the tree is still sliding in)
+  const hi = () => Math.min(lineEnd() - half(), view.width - half() - 2);
+  // can a dog stand on the line at all? On a phone the line is only a short stub once the tree is in place.
+  const fits = () => hi() - lo() >= 2 * u;
+  // The stretch it walks on. Where there is open line beside the name it keeps clear of the name (on a phone
+  // the dog is nearly as tall as the name, so standing under it hides the logo); otherwise the whole line.
+  function zone(): [number, number] {
+    const clear = world!.nameEnd + 8 + half();
+    return hi() - clear >= 3 * half() ? [clear, hi()] : [lo(), hi()];
+  }
+  const grounded = () => state === 'land' || state === 'idle' || state === 'walk' || state === 'leave';
 
   function settle() {
     // the dog stands on the line
@@ -344,6 +358,31 @@ export function createPup(host: HTMLElement) {
     }
     // on the line from here on
     feet = w.lineY - 1;
+
+    if (state === 'away') {
+      // back once the line is long enough again (scrolled back to the top): it walks in from the left edge
+      if (!fits()) return;
+      x = -half() - 2;
+      state = 'walk';
+      facing = 1;
+      goal = zone()[0] + rand(6, 14) * u;
+      t = 0;
+    } else if (!fits() && state !== 'leave') {
+      // the tree has slid in and left only a stub of line: run out of the left edge rather than hang
+      // half off the screen
+      state = 'leave';
+      facing = -1;
+      t = 0;
+    }
+
+    if (state === 'leave') {
+      x -= 14 * u * 1.8 * dt;
+      travel += 14 * u * 1.8 * dt;
+      setPose(WALK[Math.floor(t / 0.09) % WALK.length]);
+      if (x <= -half() - 2) { state = 'away'; t = 0; }
+      return;
+    }
+
     const top = hi();
     if (x > top) {
       // the line is being pulled in from under the dog (the tree slides in as you scroll): it keeps its
@@ -353,33 +392,43 @@ export function createPup(host: HTMLElement) {
       if (state !== 'walk' || facing > 0) { state = 'walk'; facing = -1; goal = x - 6 * u; t = 0; }
       travel += Math.abs(from - x);
     }
+
     if (state === 'land') {
       if (t > 0.18) settle();
     } else if (state === 'idle') {
       if (t > blinkAt) { setPose('sitBlink'); if (t > blinkAt + 0.14) { blinkAt = t + rand(2, 4); setPose('sit'); } }
       else setPose('sit');
       if (t > idleFor) {
-        const a = lo();
-        const b = hi();
-        if (b - a < 6 * u) { t = 0; idleFor = 1; return; }
-        let dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
-        const room = (d: number) => (d > 0 ? b - x : x - a);
-        if (room(dir) < 10 * u) dir = (-dir) as 1 | -1;
-        walk(dir, Math.min(room(dir), rand(14, 40) * u));
+        const [a, b] = zone();
+        let dir: 1 | -1;
+        let dist: number;
+        if (x < a - 1) {
+          // not in its stretch yet (it landed under the name): head for it
+          dir = 1;
+          dist = Math.min(b - x, a - x + rand(4, 16) * u);
+        } else {
+          dir = Math.random() < 0.5 ? 1 : -1;
+          const room = (d: number) => (d > 0 ? b - x : x - a);
+          if (room(dir) < 10 * u) dir = (-dir) as 1 | -1;
+          dist = Math.min(room(dir), rand(14, 40) * u);
+        }
+        if (dist < 2 * u) { t = 0; idleFor = 1; return; }
+        walk(dir, dist);
         idleFor = rand(0.7, 1.8);
       }
     } else if (state === 'walk') {
-      const speed = 14 * u;
+      const [a, b] = zone();
+      const outside = x < a - 0.5; // left of its stretch: under the name, or just coming in from the edge
+      if (outside && facing < 0) { state = 'idle'; t = 0; return; } // never walks further out
       const from = x;
-      x += facing * speed * dt;
-      const a = lo();
-      const b = hi();
+      x += facing * 14 * u * dt;
       const arrived = facing > 0 ? x >= goal : x <= goal;
-      x = clamp(x, Math.min(a, b), Math.max(a, b));
+      if (!outside) x = Math.max(x, a);
+      x = Math.min(x, b);
       travel += Math.abs(x - from);
       setPose(WALK[Math.floor(t / 0.12) % WALK.length]);
       if (travel - stampedAt >= PRINT_GAP * u) { stampedAt = travel; stamp(); }
-      if (arrived || x <= a || x >= b) { state = 'idle'; t = 0; blinkAt = rand(1, 3); }
+      if (arrived || (!outside && x <= a) || x >= b) { state = 'idle'; t = 0; blinkAt = rand(1, 3); }
     }
   }
 
@@ -404,6 +453,9 @@ export function createPup(host: HTMLElement) {
 
     const c = state === 'peek' || (state === 'drop' && clip < H * u) ? `inset(0 0 ${Math.max(0, H * u - clip)}px 0)` : '';
     if (c !== shown.clip) { shown.clip = c; dog.style.clipPath = c; }
+
+    const vis = state === 'away' ? 'hidden' : '';
+    if (vis !== shown.vis) { shown.vis = vis; dog.style.visibility = vis; }
 
     // in front of the name once it has dropped out from behind it; fading as it nears the fixed top bar
     const z = state === 'peek' ? '' : '12';
@@ -461,6 +513,7 @@ export function createPup(host: HTMLElement) {
           feet = world.lineY - 1;
           settle();
           setPose('sit');
+          if (!fits()) state = 'away';
         } else {
           state = 'peek';
           setPose('stand');
@@ -468,12 +521,19 @@ export function createPup(host: HTMLElement) {
         }
       } else if (state === 'peek' && v.scrollY > TRIGGER) {
         release();
-      } else if (v.still && state !== 'idle') {
+      } else if (v.still && state !== 'idle' && state !== 'away') {
         feet = world.lineY - 1;
         settle();
         setPose('sit');
       }
-      if (v.still) x = clamp(x, Math.min(lo(), hi()), Math.max(lo(), hi()));
+      if (v.still) {
+        if (!fits()) state = 'away';
+        else {
+          if (state === 'away') settle();
+          const [a, b] = zone();
+          x = clamp(x, a, b);
+        }
+      }
       // draw straight away so there is never a frame with the dog unplaced; the loop takes over from here
       render();
       fadePaws();

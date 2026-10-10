@@ -67,7 +67,13 @@ function init() {
   addEventListener('scroll', () => schedule(false), { passive: true });
   reduce.addEventListener('change', () => schedule(true));
   wide.addEventListener('change', () => schedule(true));
+  // Everything here is measured from the rendered text, so measure again whenever the web fonts arrive:
+  // on a phone connection they land well after this script runs, and `ready` alone can resolve before
+  // they have even been requested.
   document.fonts?.ready.then(() => schedule(true));
+  document.fonts?.addEventListener?.('loadingdone', () => schedule(true));
+  document.fonts?.load('italic 1em "Instrument Serif"').then(() => schedule(true), () => {});
+  addEventListener('load', () => schedule(true));
   build();
   paint();
 }
@@ -243,7 +249,8 @@ function build() {
     endRest: tx - r,
     headX: nm.x + nm.cyril.x + nm.cyril.w * 0.62,
     edgeY: nm.top - treeTop + nm.cyril.edge,
-    unit: Math.min(4, Math.max(3, Math.round(nm.fs / 34))), // whole device pixels per art pixel, scaled with the name
+    nameEnd: nm.x + nm.cyril.x + nm.cyril.w,
+    unit: Math.min(4, Math.max(2, Math.round(nm.fs / 26))), // whole px per art pixel, scaled with the name
   });
 
   render();
@@ -295,7 +302,7 @@ function paint() {
   const e = dockProgress();
   paintName(e);
   paintTree(e);
-  pup?.sync({ scrollY, treeTop, dx: (1 - e) * treeW, still });
+  pup?.sync({ scrollY, treeTop, dx: (1 - e) * treeW, width: treeW, still });
   // the lane labels, the layout toggle and the cards wait until the tree has finished sliding in, so
   // none of them is ever seen next to a tree that's still off its mark
   const placed = e >= 0.99;
