@@ -106,6 +106,7 @@ export function createPup(host: HTMLElement) {
 
   let state: State = 'peek';
   let started = false;
+  let held = false; // the page is still printing its intro: don't start (peek) yet
   let t = 0; // seconds spent in the current state
   let x = 0; // centre of the body sprite
   let feet = 0; // bottom edge of the body sprite
@@ -853,7 +854,7 @@ export function createPup(host: HTMLElement) {
     raf = 0;
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
     last = now;
-    if (!world) return;
+    if (!world || !started) return; // (not before its first paint: it would show the face while the intro plays)
     if (!view.still) step(dt);
     render();
     fadePaws();
@@ -866,7 +867,7 @@ export function createPup(host: HTMLElement) {
   }
 
   function wake() {
-    if (raf || view.still || !world) return;
+    if (raf || view.still || !world || !started) return;
     last = performance.now();
     raf = requestAnimationFrame(tick);
   }
@@ -906,6 +907,10 @@ export function createPup(host: HTMLElement) {
       render();
       wake();
     },
+    /** Keep the dog out of sight (no peeking yet) while the page plays its intro. Releasing it takes effect on the next paint. */
+    hold(on: boolean) {
+      held = on;
+    },
     /** Called on every paint; cheap. */
     sync(v: PupView) {
       if (v.scrollY !== view.scrollY) {
@@ -919,6 +924,7 @@ export function createPup(host: HTMLElement) {
       }
       view = v;
       if (!world) return;
+      if (!started && held) return;
       const inFront = () => clamp(world!.nameEnd + 8 + half(), lo(), Math.max(lo(), hi()));
       if (!started) {
         started = true;

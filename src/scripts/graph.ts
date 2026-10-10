@@ -3,6 +3,7 @@
 // SVG is decoration (aria-hidden), so everything works if this script doesn't.
 
 import { createPup } from './pup';
+import { runIntro } from './intro';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const R = 28; // corner radius where the hero line turns down
@@ -31,6 +32,8 @@ const rows = tree ? [...tree.querySelectorAll<HTMLElement>('.entry')] : [];
 const nameEl = document.querySelector<HTMLElement>('[data-name]');
 const slot = document.querySelector<HTMLElement>('[data-name-slot]');
 const eyebrow = document.querySelector<HTMLElement>('.eyebrow');
+const role = document.querySelector<HTMLElement>('.role');
+const lede = document.querySelector<HTMLElement>('p.intro');
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 const wide = matchMedia('(min-width: 860px)');
@@ -42,6 +45,7 @@ let entries: Row[] = [];
 let treeTop = 0;
 let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
 let slid = ''; // last transform written to the SVG
+let heroEl: SVGPathElement | undefined; // the hero line's path, kept across rebuilds
 let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
 // cyril: where the word "Cyril" sits inside the name at full size (x, width); stem: the right-hand edge of its
 // last letter (a line: x at y, and how far x moves per px of y, since the letters lean) and the height the
@@ -57,6 +61,15 @@ function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
   root.classList.add('graph-ready');
   pup = createPup(tree);
+  // On a first visit the page plays a typed-command intro (intro.ts); the dog waits for it to finish.
+  const intro = runIntro();
+  if (intro) {
+    pup.hold(true);
+    intro.then(() => {
+      pup?.hold(false);
+      schedule(false); // a paint, so it starts now rather than at the next scroll
+    });
+  }
 
   const q = new URLSearchParams(location.search).get('layout');
   const saved = safe(() => localStorage.getItem('layout'));
@@ -379,19 +392,28 @@ function render() {
   svg!.setAttribute('width', String(w + back));
   svg!.setAttribute('height', String(hgt));
   svg!.setAttribute('viewBox', `${-back} 0 ${w + back} ${hgt}`);
-  svg!.replaceChildren();
+  // Everything is drawn again, except the hero line: its element is kept, so a rebuild in the middle of it
+  // drawing itself in (fonts arriving, a resize, during the shell intro) neither restarts nor cuts it short.
+  for (const c of [...svg!.children]) if (c !== heroEl) c.remove();
 
-  const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>) => {
+  const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>, before?: Node | null) => {
     const el = document.createElementNS(SVG_NS, tag);
     for (const k in attrs) el.setAttribute(k, attrs[k]);
-    svg!.append(el);
+    svg!.insertBefore(el, before ?? null);
     return el;
   };
 
-  for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' });
+  // (the ghosts go under the hero line, where they always were)
+  for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' }, heroEl);
   for (const s of segs) {
     s.last = undefined;
-    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
+    if (s.hero && heroEl) {
+      heroEl.setAttribute('d', s.d);
+      s.el = heroEl;
+    } else {
+      s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
+      if (s.hero) heroEl = s.el;
+    }
   }
   for (const d of dots) {
     const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;
@@ -462,6 +484,15 @@ function paintName(e: number) {
   nameEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
   nameEl.classList.toggle('docked', e > 0.98);
   if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 5));
+  // The role and the intro are pushed off to the left, fading, as the tree arrives from the right (the trunk
+  // would otherwise run through them). With reduced motion the tree is simply there, so they stay. Inline
+  // styles only while it is under way: at rest the stylesheet (and the intro's hidden state) applies.
+  const out = reduce.matches ? 0 : clamp(e * 4);
+  for (const [el, dist] of [[role, 72], [lede, 96]] as const) {
+    if (!el) continue;
+    el.style.opacity = out > 0 ? String(1 - out) : '';
+    el.style.transform = out > 0 ? `translateX(${(-out * dist).toFixed(1)}px)` : '';
+  }
 }
 
 init();
