@@ -62,12 +62,15 @@ export interface Pose {
   mouth?: boolean; // mouth open, tongue out
   sit?: boolean;
   lie?: boolean; // curled up asleep
-  nose?: number; // rows the head hangs down (sniffing)
+  nose?: number; // rows the head hangs down (sniffing); negative lifts it
+  fy?: number; // front legs' own top and length, if they differ from the back legs (reaching, paws in the air)
+  fh?: number;
 }
 
 // The dog faces right; the sprite is mirrored in CSS to face left.
 export function drawBody(p: Pose = {}): Grid {
   const { dy = 0, legs = [5, 8, 13, 11], legY = 12, legH = 3, ears = 'up', tail = 'up', eye = 'open', mouth = false, sit = false, lie = false, nose = 0 } = p;
+  const { fy = legY, fh = legH } = p;
   const g = blank(W, H);
   const rect = (x: number, y: number, w: number, h: number, c: string) => {
     for (let j = y + OY; j < y + OY + h; j++) for (let i = x; i < x + w; i++) if (g[j] && i >= 0 && i < W) g[j][i] = c;
@@ -93,7 +96,7 @@ export function drawBody(p: Pose = {}): Grid {
 
   if (!sit) {
     rect(legs[1], legY, 2, legH, 'g');
-    rect(legs[3], legY, 2, legH, 'g');
+    rect(legs[3], fy, 2, fh, 'g');
   }
 
   const ty = 6 + dy;
@@ -120,7 +123,7 @@ export function drawBody(p: Pose = {}): Grid {
   }
 
   const hy = (sit ? 1 : 2) + dy + nose;
-  if (nose) rect(12, 6 + dy, 5, nose + 3, 'b'); // neck
+  if (nose > 0) rect(12, 6 + dy, 5, nose + 3, 'b'); // neck
   rect(12, hy, 7, 7, 'b');
   px(12, hy, '.'); px(18, hy, '.');
   rect(18, hy + 3, 4, 3, 'b'); // snout
@@ -136,7 +139,7 @@ export function drawBody(p: Pose = {}): Grid {
 
   if (!sit) {
     rect(legs[0], legY, 2, legH, 'b');
-    rect(legs[2], legY, 2, legH, 'b');
+    rect(legs[2], fy, 2, fh, 'b');
   }
   return outline(g);
 }
@@ -148,8 +151,16 @@ export const POSES: Record<string, Pose> = {
   walk1: { legs: [6, 7, 12, 13], legY: 11, legH: 4, dy: -1 },
   walk2: { legs: [8, 4, 11, 14] },
   walk3: { legs: [6, 7, 12, 13], legY: 11, legH: 4, dy: -1 },
+  // a gallop: stretched out in the air, front paws down, bunched up, back paws push off
+  run0: { dy: -1, legs: [1, 3, 17, 15], legY: 11, legH: 3, fy: 9, fh: 3, ears: 'flat', mouth: true, tail: 'mid' },
+  run1: { dy: 0, legs: [3, 5, 16, 14], legY: 10, legH: 3, fy: 12, fh: 3, ears: 'flat', mouth: true, tail: 'mid' },
+  run2: { dy: -1, legs: [8, 10, 10, 12], legY: 11, legH: 2, fy: 11, fh: 2, ears: 'flat', mouth: true, tail: 'mid' },
+  run3: { dy: 0, legs: [2, 4, 17, 15], legY: 12, legH: 3, fy: 9, fh: 3, ears: 'flat', mouth: true, tail: 'mid' },
   sniff0: { nose: 4, legs: [4, 9, 14, 11], tail: 'mid' },
   sniff1: { nose: 4, legs: [5, 8, 13, 11], tail: 'up', dy: 0 },
+  // on the edge: leaning out with the front paws scrabbling at nothing, then rocking back with them in the air
+  teeterA: { nose: 2, dy: 1, legs: [3, 8, 16, 13], legY: 13, legH: 2, fy: 12, fh: 3, ears: 'flat', eye: 'wide', mouth: true },
+  teeterB: { nose: -1, dy: -1, legs: [4, 7, 15, 17], legY: 11, legH: 4, fy: 7, fh: 3, ears: 'high', eye: 'wide', mouth: true, tail: 'mid' },
   fall: { legs: [2, 4, 14, 12], legY: 10, legH: 3, ears: 'high', mouth: true, eye: 'wide', dy: -2 },
   land: { dy: 2, legY: 14, legH: 1, ears: 'flat', eye: 'shut', legs: [2, 7, 15, 12] },
   sit: { sit: true, tail: 'down' },
@@ -161,6 +172,7 @@ export const POSES: Record<string, Pose> = {
   lie: { lie: true },
 };
 export const WALK = ['walk0', 'walk1', 'walk2', 'walk3'];
+export const RUN = ['run0', 'run1', 'run2', 'run3'];
 
 // ---- face ---------------------------------------------------------------------------------------------
 

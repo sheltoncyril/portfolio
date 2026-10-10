@@ -67,6 +67,7 @@ function init() {
     b.addEventListener('click', () => setLayout(b.dataset.setLayout === 'lanes' ? 'lanes' : 'branches', true)),
   );
   document.querySelector('[data-theme-toggle]')?.addEventListener('click', toggleTheme);
+  nameFontPicker();
 
   new ResizeObserver(() => schedule(true)).observe(tree);
   addEventListener('scroll', () => schedule(false), { passive: true });
@@ -77,7 +78,7 @@ function init() {
   // they have even been requested.
   document.fonts?.ready.then(() => schedule(true));
   document.fonts?.addEventListener?.('loadingdone', () => schedule(true));
-  document.fonts?.load('italic 1em "Abril Fatface"').then(() => schedule(true), () => {});
+  document.fonts?.load('italic 1em "Instrument Serif"').then(() => schedule(true), () => {});
   addEventListener('load', () => schedule(true));
   build();
   paint();
@@ -92,6 +93,55 @@ function setLayout(l: Layout, persist: boolean) {
     safe(() => localStorage.setItem('layout', l));
     schedule(true);
   }
+}
+
+// The name's face can be switched with ?font=dm | gloock | young | instrument. With ?font or ?fonts in the
+// URL a small picker is shown as well, to try them on a phone; without either nothing changes.
+const NAME_FONTS = [
+  { key: 'instrument', family: 'Instrument Serif', label: 'Instrument' },
+  { key: 'dm', family: 'DM Serif Display', label: 'DM Serif' },
+  { key: 'gloock', family: 'Gloock', label: 'Gloock' },
+  { key: 'young', family: 'Young Serif', label: 'Young Serif' },
+];
+
+function setNameFont(key: string) {
+  const f = NAME_FONTS.find((x) => x.key === key) ?? NAME_FONTS[0];
+  if (f.key === 'instrument') delete root.dataset.nameFont;
+  else root.dataset.nameFont = f.key;
+  document.querySelectorAll<HTMLButtonElement>('[data-name-font-pick]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.nameFontPick === f.key)),
+  );
+  // everything the dog hides behind is measured from the rendered letters, so measure again once it is in
+  document.fonts?.load(`italic 1em "${f.family}"`).then(() => schedule(true), () => {});
+  schedule(true);
+}
+
+function nameFontPicker() {
+  const params = new URLSearchParams(location.search);
+  const want = params.get('font');
+  if (want) setNameFont(want);
+  if (want === null && !params.has('fonts')) return;
+  const bar = document.createElement('div');
+  bar.className = 'font-pick';
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Name font');
+  for (const f of NAME_FONTS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = f.label;
+    b.dataset.nameFontPick = f.key;
+    b.setAttribute('aria-pressed', String((want ?? 'instrument') === f.key));
+    b.addEventListener('click', () => {
+      setNameFont(f.key);
+      safe(() => {
+        const u = new URL(location.href);
+        u.searchParams.set('font', f.key);
+        history.replaceState(null, '', u);
+      });
+    });
+    bar.append(b);
+  }
+  document.body.append(bar);
 }
 
 function toggleTheme() {

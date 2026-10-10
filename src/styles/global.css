@@ -13,8 +13,10 @@
   --font-sans: 'Geist Variable', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
   --font-display: 'Instrument Serif', Georgia, serif;
-  /* the name only: thick stems, so a letter is solid enough to hide a dog behind */
-  --font-name: 'Abril Fatface', 'Instrument Serif', Georgia, serif;
+  /* the name's face, and how wide it sets relative to Instrument Serif (the size is divided by it, so the
+     name takes the same width whichever face is used) */
+  --font-name: 'Instrument Serif', Georgia, serif;
+  --name-k: 1;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --wrap: 1200px;
   --pad: 20px;
@@ -148,9 +150,20 @@ a:hover { text-decoration-color: currentColor; }
 .eyebrow { font: 500 0.8rem var(--font-mono); color: var(--muted); margin: 0 0 1.5rem; }
 .prompt { color: var(--hw); }
 .name {
-  font: 400 clamp(2.6rem, 9.2vw, 8rem)/0.95 var(--font-name);
-  letter-spacing: -0.01em; margin: 0 0 1.5rem; white-space: nowrap;
+  font: 400 clamp(calc(3.2rem / var(--name-k)), calc(12.5vw / var(--name-k)), calc(10.5rem / var(--name-k)))/0.9 var(--font-name);
+  letter-spacing: -0.02em; margin: 0 0 1.5rem; white-space: nowrap;
 }
+/* ?font=dm | gloock | young switches the name's face (the preview has a picker for it) */
+:root[data-name-font='dm'] { --font-name: 'DM Serif Display', 'Instrument Serif', Georgia, serif; --name-k: 1.27; }
+:root[data-name-font='gloock'] { --font-name: 'Gloock', 'Instrument Serif', Georgia, serif; --name-k: 1.33; }
+:root[data-name-font='young'] { --font-name: 'Young Serif', 'Instrument Serif', Georgia, serif; --name-k: 1.5; }
+.font-pick {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 30;
+  display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 99px;
+  background: var(--surface); font: 500 0.72rem var(--font-mono);
+}
+.font-pick button { background: none; border: 0; color: var(--muted); padding: 5px 10px; border-radius: 99px; cursor: pointer; font: inherit; }
+.font-pick button[aria-pressed='true'] { background: var(--bg); color: var(--text); }
 .name a { text-decoration: none; }
 .name span:last-child { font-style: italic; color: var(--hw); }
 .name-slot { display: none; }

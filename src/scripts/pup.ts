@@ -7,7 +7,7 @@
 // owns the geometry: it calls layout() when the tree is rebuilt and sync() on every paint. This module owns
 // the little state machine and its animation loop; the pixel art is in pup-art.ts.
 
-import { COLORS, paths, POSES, WALK, drawBody, drawFace, type FaceOpts, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } from './pup-art';
+import { COLORS, paths, POSES, WALK, RUN, drawBody, drawFace, type FaceOpts, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } from './pup-art';
 
 const HEAD_DX = 5.5; // art pixels from the body sprite's centre to the middle of its head...
 const HEAD_DY = 5.5; // ...and from its top
@@ -22,6 +22,11 @@ const PRINT_GAP = 6; // art pixels walked between two prints
 const PRINT_LIFE = 36; // art pixels walked before a print has faded away
 const SLEEP_AFTER = 9; // s without anyone touching the page before it curls up
 const ATTENTION = 4.5; // s the dog keeps following a cursor that has stopped moving
+const TROT = 18; // px/s per px of art pixel: its walking speed...
+const SPRINT = 52; // ...and how fast it runs when the cursor is a way off
+const TEETER = 1.5; // s it spends wobbling on an edge
+const WARY = 10; // s after a scare that it keeps a few steps back from the edge
+const EDGE_SAFE = 8; // art pixels it stays back by while wary
 
 export interface PupStem {
   x: number; // the right-hand edge of the letter it hides behind, at height y...
@@ -46,7 +51,8 @@ export interface PupView {
 
 // leave: running out of the left edge because the line has become too short to stand on; away: gone, until
 // the line is long enough again
-type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'leave' | 'away';
+// teeter: wobbling on the edge of the line, trying not to fall off
+type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'leave' | 'away';
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
 const easeOut = (t: number) => 1 - (1 - clamp(t)) ** 3;
@@ -81,8 +87,11 @@ export function createPup(host: HTMLElement) {
   let x = 0; // centre of the body sprite
   let feet = 0; // bottom edge of the body sprite
   let vy = 0;
+  let vx = 0; // sideways speed while it is in the air (hopping back from an edge)
   let facing: 1 | -1 = 1;
   let quiet = false; // landing from a hop in place rather than a fall: no puff
+  let phew = false; // say so once it is back on its feet
+  let waryUntil = 0;
   let faceHide = 1; // 1 = tucked right behind the letter, 0 = peeking
   let goal = 0;
   let idleFor = 1;
@@ -199,7 +208,8 @@ export function createPup(host: HTMLElement) {
     const clear = world!.nameEnd + 8 + half();
     return hi() - clear >= 1.5 * half() ? [clear, hi()] : [lo(), hi()];
   }
-  const grounded = () => state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'leave';
+  const grounded = () =>
+    state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'teeter' || state === 'leave';
   const near = () => half() * 0.9 + 6; // close enough to the cursor to sit and look at it
 
   // where the face is, while it peeks (tree coordinates; the letter's edge is a leaning line)
@@ -243,6 +253,18 @@ export function createPup(host: HTMLElement) {
     }
   }
 
+  // a little dust kicked up behind it while it runs
+  let nextKick = 0;
+  function kick(s: number) {
+    if (s < nextKick || view.still) return;
+    nextKick = s + 0.11;
+    const d = document.createElement('i');
+    d.className = 'dust';
+    d.style.cssText = `left:${Math.round(x - facing * half() * 0.7)}px;top:${Math.round(feet - u * 2)}px;width:${u}px;height:${u}px;--dx:${-facing * 9}px`;
+    layer.append(d);
+    setTimeout(() => d.remove(), 600);
+  }
+
   function heart(px: number, py: number) {
     const g = ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...'].map((r) => [...r]);
     const p = pr();
@@ -279,6 +301,7 @@ export function createPup(host: HTMLElement) {
     state = 'drop';
     t = 0;
     vy = -Math.sqrt(2 * GRAVITY * u * HOP * u);
+    vx = 0;
     quiet = false;
     setPose('fall');
   }
@@ -287,10 +310,27 @@ export function createPup(host: HTMLElement) {
     state = 'land';
     t = 0;
     vy = 0;
+    vx = 0;
     feet = world!.lineY - 1;
     setPose('land');
     if (!view.still && !quiet) puff(x, feet - u * 1.5);
+    if (phew) say('phew', x, feet - H * u - 2);
     quiet = false;
+    phew = false;
+  }
+
+  // Wobbled on the edge long enough: it rocks back, turns round and hops away from it, and for a while
+  // after that keeps a few steps back.
+  function recover() {
+    facing = (-facing) as 1 | -1;
+    state = 'drop';
+    t = 0;
+    quiet = true;
+    phew = true;
+    vy = -Math.sqrt(2 * GRAVITY * u * 5 * u);
+    vx = facing * 20 * u;
+    waryUntil = nowS() + WARY;
+    setPose('fall');
   }
 
   function walk(dir: 1 | -1, dist: number) {
@@ -400,6 +440,7 @@ export function createPup(host: HTMLElement) {
     if (state === 'drop') {
       vy += GRAVITY * u * dt;
       feet += vy * dt;
+      if (vx) x = clamp(x + vx * dt, lo(), Math.max(lo(), hi()));
       if (vy > 0 && feet >= w.lineY - 1) land();
       return;
     }
@@ -424,9 +465,10 @@ export function createPup(host: HTMLElement) {
     }
 
     if (state === 'leave') {
-      x -= 14 * u * 1.8 * dt;
-      travel += 14 * u * 1.8 * dt;
-      setPose(WALK[Math.floor(t / 0.09) % WALK.length]);
+      x -= SPRINT * 0.8 * u * dt;
+      travel += SPRINT * 0.8 * u * dt;
+      setPose(RUN[Math.floor(t / 0.07) % RUN.length]);
+      kick(s);
       if (x <= -half() - 2) { state = 'away'; t = 0; }
       return;
     }
@@ -442,9 +484,19 @@ export function createPup(host: HTMLElement) {
     }
 
     const want = attention();
+    // where it goes to meet the cursor: a few steps short of an edge it has just had a fright at
+    const hiSafe = Math.max(lo(), hi() - (s < waryUntil ? EDGE_SAFE * u : 0));
+    const aim = want === null ? null : clamp(want, lo(), hiSafe);
+    // the cursor is past the end of the line: it can't stop short of it and look, it goes right to the brink
+    const beyond = want !== null && aim !== null && Math.abs(want - aim) > 4;
+    const reach = beyond ? 1.5 : near();
 
     if (state === 'land') {
       if (t > 0.18) settle();
+    } else if (state === 'teeter') {
+      // on the edge: front paws scrabbling, rocking out over it and back
+      setPose(Math.floor(t / 0.11) % 2 ? 'teeterB' : 'teeterA');
+      if (t > TEETER) recover();
     } else if (state === 'sleep') {
       // curled up; z's drift up. Anything at all wakes it.
       setPose('lie');
@@ -454,10 +506,11 @@ export function createPup(host: HTMLElement) {
       setPose(Math.floor(t / 0.2) % 2 ? 'sniff1' : 'sniff0');
       if (want !== null || t > 1.3) { state = 'idle'; t = 0; idleFor = rand(0.4, 1); }
     } else if (state === 'idle') {
-      const d = want === null ? 0 : want - x;
-      if (want !== null && Math.abs(d) <= near()) {
-        // someone is right here: sit and look at them, tongue out, tail going
-        if (Math.abs(d) > 3) facing = d >= 0 ? 1 : -1;
+      const d = aim === null ? 0 : aim - x;
+      if (aim !== null && Math.abs(d) <= reach) {
+        // someone is right here (or as near as it dares go): sit and look at them, tongue out, tail going
+        const toward = want! - x;
+        if (Math.abs(toward) > 3) facing = toward >= 0 ? 1 : -1;
         happyFor += dt;
         setPose(Math.floor(t / 0.14) % 2 ? 'happyA' : 'happyB');
         if (happyFor > 1.4 && s >= nextHeart) { nextHeart = s + 1.3; heart(x + facing * half() * 0.2, feet - H * u - 2); }
@@ -465,7 +518,7 @@ export function createPup(host: HTMLElement) {
         happyFor = 0;
         if (t > blinkAt) { setPose('sitBlink'); if (t > blinkAt + 0.14) { blinkAt = t + rand(2, 4); } }
         else setPose(Math.floor(t / 0.4) % 2 ? 'wagA' : 'sit');
-        if (want !== null) {
+        if (aim !== null) {
           // the cursor is somewhere else on the line: go and see it
           walk(d >= 0 ? 1 : -1, Math.abs(d));
         } else if (s - lastActive > SLEEP_AFTER) {
@@ -492,27 +545,45 @@ export function createPup(host: HTMLElement) {
         }
       }
     } else if (state === 'walk') {
-      const follow = want !== null;
-      const [a, b] = follow ? [lo(), hi()] : zone();
+      const follow = aim !== null;
+      const [a, b] = follow ? [lo(), hiSafe] : zone();
       if (follow) {
-        goal = clamp(want!, Math.min(a, b), Math.max(a, b));
+        goal = clamp(aim!, Math.min(a, b), Math.max(a, b));
         facing = goal >= x ? 1 : -1;
       }
       const outside = x < a - 0.5; // left of its stretch: under the name, or just coming in from the edge
       if (outside && facing < 0) { state = 'idle'; t = 0; return; } // never walks further out
-      const run = follow && Math.abs(goal - x) > 5 * half();
+      // a long way to go to meet the cursor: it runs
+      const run = follow && Math.abs(goal - x) > 2.5 * half();
       const from = x;
-      x += facing * (run ? 26 : 14) * u * dt;
-      const arrived = follow ? Math.abs(goal - x) <= near() * 0.7 : facing > 0 ? x >= goal : x <= goal;
+      x += facing * (run ? SPRINT : TROT) * u * dt;
+      if (beyond && Math.abs(goal - x) <= 1.5) x = goal; // right to the brink, not a hair short of it
+      const arrived = follow ? Math.abs(goal - x) <= (beyond ? 1.5 : near() * 0.7) : facing > 0 ? x >= goal : x <= goal;
       if (!outside) x = Math.max(x, a);
       x = Math.min(x, b);
       travel += Math.abs(x - from);
-      setPose(WALK[Math.floor(t / (run ? 0.08 : 0.12)) % WALK.length]);
+      if (run) { setPose(RUN[Math.floor(t / 0.07) % RUN.length]); kick(s); }
+      else setPose(WALK[Math.floor(t / 0.1) % WALK.length]);
       if (travel - stampedAt >= PRINT_GAP * u) { stampedAt = travel; stamp(); }
       if (arrived || (!outside && x <= a && !follow) || x >= b) {
-        // having got somewhere it sometimes stops for a sniff
-        if (!follow && Math.random() < 0.35) { state = 'sniff'; t = 0; }
-        else { state = 'idle'; t = 0; blinkAt = rand(1, 3); idleFor = rand(0.5, 1.4); }
+        // Running into the end of the line (or the edge of the screen, which it treats the same): it
+        // skids to a stop and wobbles on the brink. Stopping at the edge of its stretch under the name
+        // doesn't count; that isn't an edge.
+        const atEdge = !outside && ((facing > 0 && x >= hi() - 0.5) || (facing < 0 && x <= lo() + 0.5));
+        if (atEdge && !view.still) {
+          state = 'teeter';
+          t = 0;
+          say('whoa!', x, feet - H * u - 2);
+        } else if (!follow && Math.random() < 0.35) {
+          // having got somewhere it sometimes stops for a sniff
+          state = 'sniff';
+          t = 0;
+        } else {
+          state = 'idle';
+          t = 0;
+          blinkAt = rand(1, 3);
+          idleFor = rand(0.5, 1.4);
+        }
       }
     }
   }
@@ -542,7 +613,9 @@ export function createPup(host: HTMLElement) {
     if (!pose) setPose(state === 'drop' ? 'fall' : state === 'land' ? 'land' : state === 'sleep' ? 'lie' : 'sit'); // after a rebuild
     if (grounded()) feet = w.lineY - 1;
 
-    const left = Math.round(x - half());
+    // rocking on the edge: swings out and back, a bit further each time
+    const wobble = state === 'teeter' ? (Math.floor(t / 0.11) % 2 ? -1 : 1) * facing * Math.round(u * (0.5 + t / TEETER)) : 0;
+    const left = Math.round(x - half() + wobble);
     const topY = Math.round(feet - H * u);
     const tr = `translate(${left}px, ${topY}px)`;
     if (tr !== shown.tr) { shown.tr = tr; dog.style.transform = tr; }
