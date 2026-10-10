@@ -94,7 +94,7 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
                 summary={u.summary}
                 tags={u.tags}
                 links={[
-                  { label: 'my commits', href: `https://github.com/${u.repo}/commits?author=${site.githubUser}` },
+                  { label: 'my pull requests', href: `https://github.com/${u.repo}/pulls?q=is%3Apr+author%3A${site.githubUser}` },
                   { label: 'project', href: `https://github.com/${u.repo}` },
                 ]}
                 metaDate={u.span}
