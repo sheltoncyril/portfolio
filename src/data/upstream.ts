@@ -1,5 +1,5 @@
 // Public open-source work done at Red Hat. Each entry is a project where I have commits on the
-// upstream default branch. Counts are non-merge commits on that branch. Newest first.
+// upstream default branch. Counts are non-merge commits on that branch. Newest first, by start date.
 export interface UpstreamProject {
   id: string;
   /** GitHub owner/repo of the public upstream project */
@@ -7,7 +7,9 @@ export interface UpstreamProject {
   title: string;
   summary: string;
   tags: string[];
-  /** e.g. "Mar 2025 – Oct 2026" */
+  /** First commit on the upstream repo, YYYY-MM-DD. Used for ordering, newest first. */
+  started: string;
+  /** Shown on the card, e.g. "Mar 2025 – Oct 2026" */
   span: string;
   show?: boolean;
 }
@@ -21,6 +23,7 @@ export const upstream = {
 export const upstreamProjects: UpstreamProject[] = [
   {
     id: 'opendatahub-tests',
+    started: '2025-03-24',
     repo: 'opendatahub-io/opendatahub-tests',
     title: 'opendatahub-tests',
     summary:
@@ -30,6 +33,7 @@ export const upstreamProjects: UpstreamProject[] = [
   },
   {
     id: 'trustyai-service-operator',
+    started: '2026-05-11',
     repo: 'trustyai-explainability/trustyai-service-operator',
     title: 'TrustyAI service operator',
     summary:
@@ -39,6 +43,7 @@ export const upstreamProjects: UpstreamProject[] = [
   },
   {
     id: 'opendatahub-operator',
+    started: '2026-03-23',
     repo: 'opendatahub-io/opendatahub-operator',
     title: 'opendatahub-operator',
     summary:
@@ -47,16 +52,8 @@ export const upstreamProjects: UpstreamProject[] = [
     span: 'Mar – Jun 2026',
   },
   {
-    id: 'odh-build-config',
-    repo: 'opendatahub-io/ODH-Build-Config',
-    title: 'ODH-Build-Config',
-    summary:
-      'Build and release configuration for Open Data Hub. 5 commits wiring in the related images for eval-hub, NeMo Guardrails and the garak provider.',
-    tags: ['Release engineering', 'Tekton', 'Containers'],
-    span: 'Apr – May 2026',
-  },
-  {
     id: 'openshift-python-wrapper',
+    started: '2026-04-08',
     repo: 'RedHatQE/openshift-python-wrapper',
     title: 'openshift-python-wrapper',
     summary:
@@ -66,6 +63,7 @@ export const upstreamProjects: UpstreamProject[] = [
   },
   {
     id: 'odh-cli',
+    started: '2026-02-19',
     repo: 'opendatahub-io/odh-cli',
     title: 'odh-cli',
     summary: 'A command-line tool for working with OpenShift AI deployments. Added bash and oc completions.',
@@ -74,4 +72,6 @@ export const upstreamProjects: UpstreamProject[] = [
   },
 ];
 
-export const visibleUpstream = upstreamProjects.filter((p) => p.show !== false);
+export const visibleUpstream = upstreamProjects
+  .filter((p) => p.show !== false)
+  .sort((a, b) => b.started.localeCompare(a.started));

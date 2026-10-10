@@ -67,8 +67,8 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
               ...(p.repo ? [{ label: 'source', href: repoUrl(p.repo) }] : []),
               ...(p.live ? [{ label: 'live', href: p.live }] : []),
             ]}
-            metaDate={when(p.date)}
-            metaDateTime={p.date}
+            metaDate={`started ${when(p.started)}`}
+            metaDateTime={p.started}
             metaRef={`${p.lane === 'hardware' ? 'hw' : 'sw'}/${p.id}`}
           />
         ))

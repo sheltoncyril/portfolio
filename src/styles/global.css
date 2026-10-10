@@ -83,7 +83,9 @@ a:hover { text-decoration-color: currentColor; }
 @media (max-width: 520px) { .bar nav a:nth-child(1), .bar nav a:nth-child(3), .bar nav a:nth-child(4) { display: none; } .bar nav { gap: 16px; } }
 
 /* tree + svg */
-.tree { position: relative; }
+/* the SVG waits off-screen to the right at the top of the page; clip it so it can't widen the page (body's overflow-x is the fallback) */
+.tree { position: relative; overflow-x: clip; }
+@supports not (overflow: clip) { .tree { overflow-x: hidden; } }
 .tree-svg { position: absolute; inset: 0 auto auto 0; pointer-events: none; overflow: visible; z-index: 0; }
 .tree > section:not(.hero), .tree > ol { position: relative; z-index: 1; }
 /* .hero must not create a stacking context: the docked name inside it has to sit above the fixed top bar */
@@ -95,8 +97,6 @@ a:hover { text-decoration-color: currentColor; }
 .seg.sw { stroke: var(--sw); }
 .seg.rh { stroke: var(--rh); }
 .seg.hero { stroke-dashoffset: 0; }
-.seg.hero.intro { animation: draw 1.1s 0.5s var(--ease) both; }
-@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 .node { fill: var(--bg); stroke-width: 2; transition: fill 0.25s, transform 0.25s var(--ease); transform-box: fill-box; transform-origin: center; }
 .node.hw { stroke: var(--hw); }
 .node.sw { stroke: var(--sw); }
@@ -166,6 +166,21 @@ a:hover { text-decoration-color: currentColor; }
 .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .toggle button { font: 500 0.75rem var(--font-mono); background: none; color: var(--muted); border: 0; padding: 4px 10px; cursor: pointer; }
 .toggle button[aria-pressed='true'] { background: var(--surface); color: var(--text); }
+/* Below the two-column breakpoint the labels and the layout toggle are laid out in flow: on a narrow
+   phone the pills wrap onto a second row, which used to land on top of the toggle. */
+@media (max-width: 859px) {
+  .fork, [data-layout='branches'] .fork {
+    height: auto; min-height: 150px; padding: 44px 0 8px 72px;
+    display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 8px;
+  }
+  [data-layout='branches'] .fork { min-height: 110px; }
+  .fork-labels { position: static; padding-right: 12px; }
+  .fork-tools { position: static; align-self: flex-end; margin-right: var(--pad); }
+}
+@media (max-width: 480px) {
+  .fork-labels { gap: 6px; }
+  .lane-pill { font-size: 0.7rem; padding: 3px 8px; gap: 6px; }
+}
 
 /* log */
 .log { list-style: none; margin: 0 auto; padding: 0 var(--pad); max-width: var(--wrap); }
@@ -209,6 +224,10 @@ a:hover { text-decoration-color: currentColor; }
 /* reveal (only once the graph script is running) */
 .graph-ready .entry:not(.in):not(:focus-within) .card,
 .graph-ready .entry:not(.in):not(:focus-within) .meta { opacity: 0; transform: translateY(8px); }
+/* lane labels and the layout toggle stay hidden until the tree has slid into place */
+.fork-labels, .fork-tools { transition: opacity 0.35s var(--ease); }
+.graph-ready .fork:not(.in):not(:focus-within) .fork-labels,
+.graph-ready .fork:not(.in):not(:focus-within) .fork-tools { opacity: 0; pointer-events: none; }
 
 /* merge + outro */
 .merge { height: 140px; max-width: var(--wrap); margin-inline: auto; padding: 0 var(--pad); position: relative; }

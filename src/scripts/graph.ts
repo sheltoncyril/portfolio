@@ -38,7 +38,9 @@ let segs: Seg[] = [];
 let dots: Dot[] = [];
 let entries: Row[] = [];
 let treeTop = 0;
-let first = true;
+let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
+let slid = ''; // last transform written to the SVG
+let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
 const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
 
 function init() {
@@ -71,7 +73,6 @@ function setLayout(l: Layout, persist: boolean) {
   );
   if (persist) {
     safe(() => localStorage.setItem('layout', l));
-    first = false;
     schedule(true);
   }
 }
@@ -125,7 +126,12 @@ function build() {
 
   const tr = rel(trace!);
   const y0 = tr.y;
-  const x0 = tr.x;
+  treeW = root.clientWidth;
+  // The hero line starts one screen-width to the left of the tree. The tree waits one screen-width to the
+  // right, so at scroll 0 the line exactly spans the screen; as the tree slides in, the line's right end
+  // (the corner into the trunk) is pulled in from the right edge, and at rest it runs from the left edge
+  // of the screen to the trunk.
+  const x0 = -treeW - t.left;
   const a = rel(rows[0].querySelector('.anchor')!);
 
   // x of the trunk and of each lane / branch, per layout and breakpoint
@@ -142,7 +148,7 @@ function build() {
     tx = a.x + 26; hx = a.x + 10; sx = a.x + 42; rx = a.x + 58;
   }
   const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
-  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the name
+  const r = Math.max(8, Math.min(R, tx - 2)); // corner radius shrinks when the trunk is close to the screen edge
 
   const f = rel(fork!);
   const m = rel(merge!);
@@ -156,6 +162,7 @@ function build() {
     return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
   });
 
+  // the hero line runs to the trunk and turns down into it; it is part of the tree, so it slides in with it
   segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
@@ -206,12 +213,12 @@ function build() {
   }
   dots.push({ x: tx, y: headY, kind: 'head' });
 
-  render(first);
-  first = false;
+  render();
 }
 
-function render(intro: boolean) {
-  const w = Math.ceil(tree!.scrollWidth);
+function render() {
+  // clientWidth, not scrollWidth: the SVG is translated off to the right, which scrollWidth would count
+  const w = Math.ceil(tree!.clientWidth);
   const hgt = Math.ceil(tree!.scrollHeight);
   svg!.setAttribute('width', String(w));
   svg!.setAttribute('height', String(hgt));
@@ -228,7 +235,7 @@ function render(intro: boolean) {
   for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' });
   for (const s of segs) {
     s.last = undefined;
-    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' + (intro ? ' intro' : '') : ''}` });
+    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
   }
   for (const d of dots) {
     const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;
@@ -252,6 +259,13 @@ function paint() {
   const boost = clamp(1 - (maxScroll - scrollY) / (innerHeight * 0.5));
   const marker = scrollY + innerHeight * (MARKER + (1 - MARKER) * boost) - treeTop;
   const still = reduce.matches;
+  const e = dockProgress();
+  paintName(e);
+  paintTree(e);
+  // the lane labels, the layout toggle and the cards wait until the tree has finished sliding in, so
+  // none of them is ever seen next to a tree that's still off its mark
+  const placed = e >= 0.99;
+  if (placed !== forkIn) { forkIn = placed; fork!.classList.toggle('in', placed); }
   for (const s of segs) {
     if (s.hero || !s.el) continue;
     const p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));
@@ -261,25 +275,36 @@ function paint() {
     const on = still || marker >= d.y - 2;
     if (on !== d.on && d.el) { d.on = on; d.el.classList.toggle('on', on); }
   }
-  paintName();
-  for (const e of entries) {
-    const on = still || marker >= e.y - 110;
-    if (on !== e.on) { e.on = on; e.el.classList.toggle('in', on); }
+  for (const row of entries) {
+    const on = placed && (still || marker >= row.y - 110);
+    if (on !== row.on) { row.on = on; row.el.classList.toggle('in', on); }
   }
 }
 
-// The name starts big in the hero and shrinks into the top-left corner over the first stretch of scroll.
-function paintName() {
-  if (!nameEl) return;
+// The name starts big in the hero and shrinks into the top-left corner over the first stretch of
+// scroll; the tree slides in from the right edge over the same stretch, with the same easing.
+function dockProgress() {
   const t = clamp(scrollY / nm.dist);
-  const e = reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
+  return reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
+}
+
+// The tree moves as one rigid piece: one screen-width to the right at e = 0 (only the hero line, which
+// reaches back across the screen, is in view), at its normal place at e = 1.
+function paintTree(e: number) {
+  const dx = (1 - e) * treeW;
+  const t = dx > 0.5 ? `translate(${dx.toFixed(1)}px, 0)` : '';
+  if (t !== slid) { slid = t; svg!.style.transform = t; }
+}
+
+function paintName(e: number) {
+  if (!nameEl) return;
   const live = nm.top - scrollY;
   const x = nm.x + (nm.tx - nm.x) * e;
   const y = live + (nm.ty - live) * e;
   const sc = 1 + (nm.scale - 1) * e;
   nameEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
   nameEl.classList.toggle('docked', e > 0.98);
-  if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 2.2));
+  if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 5));
 }
 
 init();
