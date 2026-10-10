@@ -19,6 +19,13 @@ npm run dev      # http://localhost:4321
 npm run build
 ```
 
-## Deploy
+## Deploy (Cloudflare Pages)
 
-GitHub Actions publishes `dist/` to GitHub Pages on every push to `main` (`.github/workflows/deploy.yml`). One-time setup: Settings → Pages → Source: GitHub Actions, custom domain `sheltoncyril.io`, then DNS: four `A` records for the apex (`185.199.108.153`, `.109.153`, `.110.153`, `.111.153`) and a `CNAME` for `www` → `sheltoncyril.github.io`.
+The site is fully static, so no Astro adapter is needed.
+
+1. Cloudflare dashboard → Workers & Pages → Create → Pages → Connect to Git → pick this repo and the production branch (`main`).
+2. Build settings: framework preset **Astro**, build command `npm run build`, output directory `dist`. Node is pinned to 22 by `.node-version`.
+3. Custom domains → add `sheltoncyril.io` (and `www.sheltoncyril.io`). If the domain's DNS is already on Cloudflare the records are created for you; otherwise add the CNAME it shows. To send `www` to the apex, add a Redirect Rule (Rules → Redirect Rules).
+4. Every push to `main` deploys to production; other branches get preview URLs.
+
+`public/_headers` sets security headers and long-lived caching for `/_astro/*`. To deploy by hand instead of Git integration: `npm run deploy` (needs `npx wrangler login` once).
