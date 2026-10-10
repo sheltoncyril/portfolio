@@ -1,0 +1,107 @@
+---
+import { Image } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import { site } from '../data/site';
+import { visibleProjects } from '../data/projects';
+
+const fmt = new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const when = (d: string) => fmt.format(new Date(d));
+const repoUrl = (r: string) => `${site.github}/${r}`;
+---
+
+<Base>
+  <a class="skip" href="#log">Skip to projects</a>
+  <header class="bar">
+    <a class="bar-id" href="#top">~/sheltoncyril</a>
+    <nav aria-label="Primary">
+      <a href="#log">projects</a>
+      <a href="#contact">contact</a>
+      <a href={site.blog}>blog</a>
+      <a href={site.github}>github</a>
+      <button class="theme" type="button" aria-label="Toggle colour theme" data-theme-toggle>
+        <span aria-hidden="true">◐</span>
+      </button>
+    </nav>
+  </header>
+
+  <div class="tree" data-tree data-layout="lanes">
+    <svg class="tree-svg" aria-hidden="true" focusable="false"></svg>
+
+    <section class="hero" id="top">
+      <p class="eyebrow">~/sheltoncyril <span class="prompt">$</span> git log --graph</p>
+      <h1 class="name"><span>Shelton</span> <span>Cyril</span></h1>
+      <p class="role">{site.role}</p>
+      <p class="intro">{site.intro}</p>
+      <div class="trace" data-trace></div>
+    </section>
+
+    <section class="fork" aria-label="Branches">
+      <div class="fork-labels" aria-hidden="true">
+        <span class="lane-pill hw"><i></i>hardware</span>
+        <span class="lane-pill sw"><i></i>software</span>
+      </div>
+      <div class="fork-tools">
+        <span class="mono muted">layout</span>
+        <div class="toggle" role="group" aria-label="Graph layout">
+          <button type="button" data-set-layout="lanes" aria-pressed="true">lanes</button>
+          <button type="button" data-set-layout="spurs" aria-pressed="false">spurs</button>
+        </div>
+      </div>
+    </section>
+
+    <ol class="log" id="log" aria-label="Projects, newest first">
+      {
+        visibleProjects.map((p) => (
+          <li class={`entry ${p.lane === 'hardware' ? 'hw' : 'sw'}`} data-lane={p.lane === 'hardware' ? 'hw' : 'sw'}>
+            <span class="anchor" aria-hidden="true" />
+            <article class="card">
+              <header class="card-head">
+                <span class="lane-tag">{p.lane}</span>
+                {p.status && <span class="status">{p.status}</span>}
+              </header>
+              <h2>{p.title}</h2>
+              <p>{p.summary}</p>
+              {p.image && (
+                <figure class="shot">
+                  <Image src={p.image} alt={p.imageAlt ?? ''} widths={[480, 800, 1100]} sizes="(min-width: 860px) 440px, 90vw" loading="lazy" />
+                </figure>
+              )}
+              <ul class="tags" aria-label="Tech">
+                {p.tags.map((t) => <li>{t}</li>)}
+              </ul>
+              {(p.repo || p.live) && (
+                <p class="links">
+                  {p.repo && <a href={repoUrl(p.repo)}>source ↗</a>}
+                  {p.live && <a href={p.live}>live ↗</a>}
+                </p>
+              )}
+            </article>
+            <div class="meta" aria-hidden="true">
+              <time datetime={p.date}>{when(p.date)}</time>
+              <span>{p.lane === 'hardware' ? 'hw/' : 'sw/'}{p.id}</span>
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+
+    <section class="merge" aria-hidden="true">
+      <span class="mono muted">git merge hardware software</span>
+    </section>
+
+    <section class="outro" id="contact">
+      <span class="anchor head-anchor" aria-hidden="true"></span>
+      <p class="mono muted">HEAD → main</p>
+      <h2>Say hello.</h2>
+      <p>
+        More lives on <a href={site.github}>GitHub</a> and the <a href={site.blog}>blog</a>.
+        {site.email && <>Or write to <a href={`mailto:${site.email}`}>{site.email}</a>.</>}
+      </p>
+      <p class="fine mono muted">© {new Date().getFullYear()} {site.name}</p>
+    </section>
+  </div>
+
+  <script>
+    import '../scripts/graph';
+  </script>
+</Base>
