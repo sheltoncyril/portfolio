@@ -40,8 +40,8 @@ let entries: Row[] = [];
 let treeTop = 0;
 let first = true;
 const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
-// The hero line starts full-width and contracts to [x0, xe] as the name docks.
-const heroLine = { el: undefined as SVGPathElement | undefined, x0: 0, y: 0, xe: 0 };
+// The hero line enters from the right edge and sweeps left to the trunk as the name docks.
+const heroLine = { el: undefined as SVGPathElement | undefined, y: 0, xe: 0 };
 
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
@@ -127,7 +127,6 @@ function build() {
 
   const tr = rel(trace!);
   const y0 = tr.y;
-  const x0 = tr.x;
   const a = rel(rows[0].querySelector('.anchor')!);
 
   // x of the trunk and of each lane / branch, per layout and breakpoint
@@ -144,7 +143,8 @@ function build() {
     tx = a.x + 26; hx = a.x + 10; sx = a.x + 42; rx = a.x + 58;
   }
   const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
-  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the name
+  const r = R;
+  const right = root.clientWidth;
 
   const f = rel(fork!);
   const m = rel(merge!);
@@ -158,8 +158,8 @@ function build() {
     return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
   });
 
-  segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
-  Object.assign(heroLine, { x0, y: y0, xe: tx - r });
+  segs.push({ d: `M${right},${y0} H${tx + r}`, y0, y1: y0, kind: 'trunk', hero: true });
+  Object.assign(heroLine, { y: y0, xe: tx + r });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
   const up = entries.filter((e) => lane(e) === 'rh');
@@ -176,7 +176,7 @@ function build() {
     const laneTop = forkY + F;
     const laneEnd = m.y + 10;
     const mergeEnd = laneEnd + F;
-    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk', gate: true });
+    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk', gate: true });
     for (const k of ['hw', 'sw'] as const) {
       const x = laneX[k];
       segs.push({ d: `M${tx},${forkY} C${tx},${forkY + F * 0.55} ${x},${forkY + F * 0.45} ${x},${laneTop}`, y0: forkY, y1: laneTop, kind: k });
@@ -194,7 +194,7 @@ function build() {
     }
   } else {
     // main runs straight down; every project forks off it, runs beside its card, and merges back
-    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk', gate: true });
+    segs.push({ d: `M${tx + r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk', gate: true });
     for (const e of own) {
       const k = lane(e);
       const x = laneX[k];
@@ -261,8 +261,8 @@ function paint() {
   for (const s of segs) {
     if (s.hero || !s.el) continue;
     let p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));
-    // the trunk only starts to drop once the hero line has contracted back to it
-    if (s.gate && !still) p = Math.min(p, clamp((e - 0.75) / 0.25));
+    // the trunk only starts to drop once the hero line has reached it
+    if (s.gate && !still) p = Math.min(p, clamp((e - 0.8) / 0.2));
     if (p !== s.last) { s.last = p; s.el.style.strokeDashoffset = String(1 - p); }
   }
   for (const d of dots) {
@@ -276,7 +276,7 @@ function paint() {
 }
 
 // The name starts big in the hero and shrinks into the top-left corner over the first stretch of
-// scroll; the line under it starts full-width and contracts in step.
+// scroll; the line starts as a stub at the right edge and sweeps left to the trunk in step.
 function dockProgress() {
   const t = clamp(scrollY / nm.dist);
   return reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
@@ -285,9 +285,9 @@ function dockProgress() {
 function paintName(e: number) {
   if (heroLine.el) {
     const full = root.clientWidth;
-    const a = heroLine.x0 * e;
-    const b = full + (heroLine.xe - full) * e;
-    heroLine.el.setAttribute('d', `M${a},${heroLine.y} H${Math.max(a, b)}`);
+    const stub = full - Math.min(full * 0.28, 360); // where the line's left end sits at the top of the page
+    const end = stub + (heroLine.xe - stub) * clamp(e / 0.8); // the sweep finishes at 80% of the dock, then the trunk takes over
+    heroLine.el.setAttribute('d', `M${full},${heroLine.y} H${Math.min(end, full - 1)}`);
   }
   if (!nameEl) return;
   const live = nm.top - scrollY;
