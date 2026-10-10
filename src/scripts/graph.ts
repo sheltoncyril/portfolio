@@ -12,7 +12,7 @@ const MARKER = 0.62; // fraction of viewport height where the line "is drawn up 
 
 type Kind = 'trunk' | 'hw' | 'sw' | 'rh';
 type Lane = 'hw' | 'sw' | 'rh';
-interface Seg { d: string; y0: number; y1: number; kind: Kind; hero?: boolean; el?: SVGPathElement; last?: number }
+interface Seg { d: string; y0: number; y1: number; kind: Kind; hero?: boolean; gate?: boolean; el?: SVGPathElement; last?: number }
 interface Dot { x: number; y: number; kind: Kind | 'head' | 'tick'; el?: SVGElement; on?: boolean }
 interface Row { el: HTMLElement; y: number; top: number; bottom: number; on?: boolean }
 type Layout = 'branches' | 'lanes';
@@ -40,6 +40,8 @@ let entries: Row[] = [];
 let treeTop = 0;
 let first = true;
 const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
+// The hero line starts full-width and contracts to [x0, xe] as the name docks.
+const heroLine = { el: undefined as SVGPathElement | undefined, x0: 0, y: 0, xe: 0 };
 
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
@@ -157,6 +159,7 @@ function build() {
   });
 
   segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
+  Object.assign(heroLine, { x0, y: y0, xe: tx - r });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
   const up = entries.filter((e) => lane(e) === 'rh');
@@ -173,7 +176,7 @@ function build() {
     const laneTop = forkY + F;
     const laneEnd = m.y + 10;
     const mergeEnd = laneEnd + F;
-    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk' });
+    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk', gate: true });
     for (const k of ['hw', 'sw'] as const) {
       const x = laneX[k];
       segs.push({ d: `M${tx},${forkY} C${tx},${forkY + F * 0.55} ${x},${forkY + F * 0.45} ${x},${laneTop}`, y0: forkY, y1: laneTop, kind: k });
@@ -191,7 +194,7 @@ function build() {
     }
   } else {
     // main runs straight down; every project forks off it, runs beside its card, and merges back
-    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk' });
+    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk', gate: true });
     for (const e of own) {
       const k = lane(e);
       const x = laneX[k];
@@ -230,6 +233,7 @@ function render(intro: boolean) {
     s.last = undefined;
     s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' + (intro ? ' intro' : '') : ''}` });
   }
+  heroLine.el = segs.find((x) => x.hero)?.el;
   for (const d of dots) {
     const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;
     d.on = undefined;
@@ -252,34 +256,47 @@ function paint() {
   const boost = clamp(1 - (maxScroll - scrollY) / (innerHeight * 0.5));
   const marker = scrollY + innerHeight * (MARKER + (1 - MARKER) * boost) - treeTop;
   const still = reduce.matches;
+  const e = dockProgress();
+  paintName(e);
   for (const s of segs) {
     if (s.hero || !s.el) continue;
-    const p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));
+    let p = still ? 1 : clamp((marker - s.y0) / Math.max(1, s.y1 - s.y0));
+    // the trunk only starts to drop once the hero line has contracted back to it
+    if (s.gate && !still) p = Math.min(p, clamp((e - 0.75) / 0.25));
     if (p !== s.last) { s.last = p; s.el.style.strokeDashoffset = String(1 - p); }
   }
   for (const d of dots) {
     const on = still || marker >= d.y - 2;
     if (on !== d.on && d.el) { d.on = on; d.el.classList.toggle('on', on); }
   }
-  paintName();
-  for (const e of entries) {
-    const on = still || marker >= e.y - 110;
-    if (on !== e.on) { e.on = on; e.el.classList.toggle('in', on); }
+  for (const row of entries) {
+    const on = still || marker >= row.y - 110;
+    if (on !== row.on) { row.on = on; row.el.classList.toggle('in', on); }
   }
 }
 
-// The name starts big in the hero and shrinks into the top-left corner over the first stretch of scroll.
-function paintName() {
-  if (!nameEl) return;
+// The name starts big in the hero and shrinks into the top-left corner over the first stretch of
+// scroll; the line under it starts full-width and contracts in step.
+function dockProgress() {
   const t = clamp(scrollY / nm.dist);
-  const e = reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
+  return reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
+}
+
+function paintName(e: number) {
+  if (heroLine.el) {
+    const full = root.clientWidth;
+    const a = heroLine.x0 * e;
+    const b = full + (heroLine.xe - full) * e;
+    heroLine.el.setAttribute('d', `M${a},${heroLine.y} H${Math.max(a, b)}`);
+  }
+  if (!nameEl) return;
   const live = nm.top - scrollY;
   const x = nm.x + (nm.tx - nm.x) * e;
   const y = live + (nm.ty - live) * e;
   const sc = 1 + (nm.scale - 1) * e;
   nameEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
   nameEl.classList.toggle('docked', e > 0.98);
-  if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 2.2));
+  if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 5));
 }
 
 init();
