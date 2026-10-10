@@ -28,7 +28,10 @@ const SLEEP_AFTER = 9; // s without anyone touching the page before it curls up
 const ATTENTION = 4.5; // s the dog keeps following a cursor that has stopped moving
 const TROT = 18; // px/s per px of art pixel: its walking speed...
 const SPRINT = 52; // ...and how fast it runs when the cursor is a way off
-const TEETER = 1.5; // s it spends wobbling on an edge
+const TEETER = 0.25; // s it flinches on the brink of an edge before it jumps
+const SCARE_JUMP = 9; // art pixels it jumps straight up when it is frightened...
+const SCARE_BACK = 14; // ...and px/s per px of art pixel it goes backwards while up there
+const PLOP = 0.95; // s it sits where it came down, stunned, before it gets up
 const WARY = 10; // s after a scare that it keeps a few steps back from the edge
 const EDGE_SAFE = 8; // art pixels it stays back by while wary
 const CARD_INSET = 6; // art pixels in from a card's edge that its centre may go: past that it teeters
@@ -73,9 +76,10 @@ export interface PupView {
 
 // leave: running out of the left edge because the line has become too short to stand on (and there is no
 // card to hop to); away: gone, until there is somewhere to stand again
-// teeter: wobbling on the edge of the line or a card, trying not to fall off
+// teeter: the flinch on the edge of the line or a card, just before it jumps back from it
+// plop: sitting where it fell over backwards, stunned
 // leap: in the air between two platforms
-type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'leave' | 'away' | 'leap';
+type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'plop' | 'leave' | 'away' | 'leap';
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
 const easeOut = (t: number) => 1 - (1 - clamp(t)) ** 3;
@@ -126,6 +130,8 @@ export function createPup(host: HTMLElement) {
   let facing: 1 | -1 = 1;
   let quiet = false; // landing from a hop in place rather than a fall: no puff
   let phew = false; // say so once it is back on its feet
+  let scared = false; // the jump it is in is a fright: it comes down on its rump, not its feet
+  let whoaAt = -1e9; // when it last said "whoa!"
   let waryUntil = 0;
   let faceHide = 1; // 1 = tucked right behind the letter, 0 = peeking
   let goal = 0;
@@ -255,7 +261,7 @@ export function createPup(host: HTMLElement) {
     return hi() - clear >= 1.5 * half() ? [clear, hi()] : [lo(), hi()];
   }
   const grounded = () =>
-    state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'teeter' || state === 'leave';
+    state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'teeter' || state === 'plop' || state === 'leave';
 
   // ---- platforms ------------------------------------------------------------------------------------
 
@@ -369,6 +375,7 @@ export function createPup(host: HTMLElement) {
     state = 'idle';
     t = 0;
     vy = 0;
+    scared = false;
     idleFor = rand(0.5, 1.2);
     blinkAt = rand(1, 3);
     happyFor = 0;
@@ -395,11 +402,20 @@ export function createPup(host: HTMLElement) {
   }
 
   function land() {
-    state = 'land';
     t = 0;
     vy = 0;
     vx = 0;
     feet = floorY();
+    if (scared) {
+      // came down on its rump: a big puff, and it sits there, stunned (the "phew" comes a moment later)
+      scared = false;
+      state = 'plop';
+      setPose('plopA');
+      if (!view.still) puff(x, feet - u * 1.5, 6, 1.6);
+      quiet = false;
+      return;
+    }
+    state = 'land';
     setPose('land');
     if (!view.still && !quiet) puff(x, feet - u * 1.5);
     if (phew) say('phew', x, feet - H * u - 2);
@@ -407,18 +423,17 @@ export function createPup(host: HTMLElement) {
     phew = false;
   }
 
-  // Wobbled on the edge long enough: it rocks back, turns round and hops away from it, and for a while
-  // after that keeps a few steps back.
+  // Flinched on the edge: it jumps straight up, startled, and falls over backwards, away from it, landing
+  // on its rump a few steps back (see 'drop' and 'plop'). For a while after that it keeps a few steps back.
   function recover() {
-    facing = (-facing) as 1 | -1;
     state = 'drop';
     t = 0;
-    quiet = true;
+    scared = true;
     phew = true;
-    vy = -Math.sqrt(2 * GRAVITY * u * 5 * u);
-    vx = facing * 20 * u;
+    vy = -Math.sqrt(2 * GRAVITY * u * SCARE_JUMP * u);
+    vx = -facing * SCARE_BACK * u;
     waryUntil = nowS() + WARY;
-    setPose('fall');
+    setPose('teeterB');
   }
 
   function walk(dir: 1 | -1, dist: number) {
@@ -635,6 +650,7 @@ export function createPup(host: HTMLElement) {
       vy += GRAVITY * u * dt;
       feet += vy * dt;
       if (vx) x = clamp(x + vx * dt, lo(), Math.max(lo(), hi()));
+      if (scared) setPose(vy < 0 ? 'teeterB' : 'plopA'); // up with a start, then over backwards
       if (vy > 0 && feet >= floorY()) land();
       return;
     }
@@ -684,7 +700,10 @@ export function createPup(host: HTMLElement) {
       // footing and trots along ahead of the end
       const from = x;
       x = top;
-      if (state !== 'walk' || facing > 0) { state = 'walk'; facing = -1; goal = x - 6 * u; t = 0; }
+      // (a dog that is flinching or sitting stunned stays as it is, and is carried along: starting it
+      // walking again every frame would make it flinch at the new end of the line every frame)
+      const busy = state === 'teeter' || state === 'plop';
+      if (!busy && (state !== 'walk' || facing > 0)) { state = 'walk'; facing = -1; goal = x - 6 * u; t = 0; }
       travel += Math.abs(from - x);
     }
 
@@ -701,9 +720,16 @@ export function createPup(host: HTMLElement) {
     if (state === 'land') {
       if (t > 0.18) settle();
     } else if (state === 'teeter') {
-      // on the edge: front paws scrabbling, rocking out over it and back
+      // on the brink: front paws scrabbling at nothing for a moment, then it is off (up and over backwards)
       setPose(Math.floor(t / 0.11) % 2 ? 'teeterB' : 'teeterA');
       if (t > TEETER) recover();
+    } else if (state === 'plop') {
+      // sat down hard with its paws in the air: eyes wide, then a "phew" with them screwed shut, then up
+      if (t > PLOP * 0.4) {
+        setPose('plopB');
+        if (phew) { phew = false; say('phew', x, feet - H * u - 2); }
+      }
+      if (t > PLOP) settle();
     } else if (state === 'sleep') {
       // curled up; z's drift up. Anything at all wakes it.
       setPose('lie');
@@ -780,7 +806,7 @@ export function createPup(host: HTMLElement) {
         if (atEdge && !view.still) {
           state = 'teeter';
           t = 0;
-          say('whoa!', x, feet - H * u - 2);
+          if (s - whoaAt > 2) { whoaAt = s; say('whoa!', x, feet - H * u - 2); }
         } else if (!follow && Math.random() < 0.35) {
           // having got somewhere it sometimes stops for a sniff
           state = 'sniff';

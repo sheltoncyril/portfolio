@@ -61,6 +61,7 @@ export interface Pose {
   eye?: 'open' | 'shut' | 'wide';
   mouth?: boolean; // mouth open, tongue out
   sit?: boolean;
+  paws?: 'up'; // sitting with the front paws lifted off the ground (it has just plopped down)
   lie?: boolean; // curled up asleep
   dive?: 1 | 2; // skydiving, flat out with the legs flung to the sides; the two frames flutter
   nose?: number; // rows the head hangs down (sniffing); negative lifts it
@@ -134,9 +135,16 @@ export function drawBody(p: Pose = {}): Grid {
     rect(10, 7, 4, 1, 'b'); rect(8, 8, 7, 1, 'b'); rect(6, 9, 10, 1, 'b'); rect(4, 10, 12, 1, 'b');
     rect(3, 11, 13, 4, 'b');
     rect(5, 10, 5, 4, 'd'); // thigh
-    rect(13, 9, 3, 5, 'c'); // chest
-    rect(12, 13, 4, 2, 'c'); // paws
-    rect(12, 11, 1, 3, 'g'); // gap between the haunch and the front legs
+    if (p.paws === 'up') {
+      // front legs thrown forward, paws in the air
+      rect(13, 9, 3, 3, 'c'); // chest
+      rect(16, 9, 4, 3, 'b'); rect(18, 9, 2, 3, 'c');
+      rect(12, 11, 1, 3, 'g');
+    } else {
+      rect(13, 9, 3, 5, 'c'); // chest
+      rect(12, 13, 4, 2, 'c'); // paws
+      rect(12, 11, 1, 3, 'g'); // gap between the haunch and the front legs
+    }
     if (tail === 'wagA') { rect(1, 13, 2, 2, 'd'); px(0, 12, 'd'); px(0, 11, 'd'); }
     else if (tail === 'wagB') { rect(0, 13, 3, 2, 'd'); px(1, 12, 'd'); }
     else rect(0, 13, 3, 2, 'd'); // lying on the ground
@@ -192,6 +200,9 @@ export const POSES: Record<string, Pose> = {
   diveA: { dive: 1 },
   diveB: { dive: 2 },
   land: { dy: 2, legY: 14, legH: 1, ears: 'flat', eye: 'shut', legs: [2, 7, 15, 12] },
+  // fell back onto its rump: front paws in the air, wide-eyed; then eyes screwed shut in a "phew"
+  plopA: { sit: true, paws: 'up', tail: 'down', eye: 'wide', mouth: true },
+  plopB: { sit: true, paws: 'up', tail: 'down', eye: 'shut', mouth: true, ears: 'flat' },
   sit: { sit: true, tail: 'down' },
   sitBlink: { sit: true, tail: 'down', eye: 'shut' },
   wagA: { sit: true, tail: 'wagA' },
