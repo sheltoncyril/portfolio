@@ -32,6 +32,8 @@ const rows = tree ? [...tree.querySelectorAll<HTMLElement>('.entry')] : [];
 const nameEl = document.querySelector<HTMLElement>('[data-name]');
 const slot = document.querySelector<HTMLElement>('[data-name-slot]');
 const eyebrow = document.querySelector<HTMLElement>('.eyebrow');
+const role = document.querySelector<HTMLElement>('.role');
+const lede = document.querySelector<HTMLElement>('p.intro');
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 const wide = matchMedia('(min-width: 860px)');
@@ -472,6 +474,15 @@ function paintName(e: number) {
   nameEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
   nameEl.classList.toggle('docked', e > 0.98);
   if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 5));
+  // The role and the intro are pushed off to the left, fading, as the tree arrives from the right (the trunk
+  // would otherwise run through them). With reduced motion the tree is simply there, so they stay. Inline
+  // styles only while it is under way: at rest the stylesheet (and the intro's hidden state) applies.
+  const out = reduce.matches ? 0 : clamp(e * 4);
+  for (const [el, dist] of [[role, 72], [lede, 96]] as const) {
+    if (!el) continue;
+    el.style.opacity = out > 0 ? String(1 - out) : '';
+    el.style.transform = out > 0 ? `translateX(${(-out * dist).toFixed(1)}px)` : '';
+  }
 }
 
 init();
