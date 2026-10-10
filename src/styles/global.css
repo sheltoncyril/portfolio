@@ -85,6 +85,7 @@ a:hover { text-decoration-color: currentColor; }
 /* tree + svg */
 /* the SVG waits off-screen to the right at the top of the page; clip it so it can't widen the page (body's overflow-x is the fallback) */
 .tree { position: relative; overflow-x: clip; }
+@supports not (overflow: clip) { .tree { overflow-x: hidden; } }
 .tree-svg { position: absolute; inset: 0 auto auto 0; pointer-events: none; overflow: visible; z-index: 0; }
 .tree > section:not(.hero), .tree > ol { position: relative; z-index: 1; }
 /* .hero must not create a stacking context: the docked name inside it has to sit above the fixed top bar */
@@ -165,6 +166,21 @@ a:hover { text-decoration-color: currentColor; }
 .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .toggle button { font: 500 0.75rem var(--font-mono); background: none; color: var(--muted); border: 0; padding: 4px 10px; cursor: pointer; }
 .toggle button[aria-pressed='true'] { background: var(--surface); color: var(--text); }
+/* Below the two-column breakpoint the labels and the layout toggle are laid out in flow: on a narrow
+   phone the pills wrap onto a second row, which used to land on top of the toggle. */
+@media (max-width: 859px) {
+  .fork, [data-layout='branches'] .fork {
+    height: auto; min-height: 150px; padding: 44px 0 8px 72px;
+    display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 8px;
+  }
+  [data-layout='branches'] .fork { min-height: 110px; }
+  .fork-labels { position: static; padding-right: 12px; }
+  .fork-tools { position: static; align-self: flex-end; margin-right: var(--pad); }
+}
+@media (max-width: 480px) {
+  .fork-labels { gap: 6px; }
+  .lane-pill { font-size: 0.7rem; padding: 3px 8px; gap: 6px; }
+}
 
 /* log */
 .log { list-style: none; margin: 0 auto; padding: 0 var(--pad); max-width: var(--wrap); }

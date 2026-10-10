@@ -126,7 +126,7 @@ function build() {
 
   const tr = rel(trace!);
   const y0 = tr.y;
-  const x0 = tr.x;
+  const x0 = -t.left; // the hero line starts at the left edge of the screen
   const a = rel(rows[0].querySelector('.anchor')!);
 
   // x of the trunk and of each lane / branch, per layout and breakpoint
@@ -143,7 +143,7 @@ function build() {
     tx = a.x + 26; hx = a.x + 10; sx = a.x + 42; rx = a.x + 58;
   }
   const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
-  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the name
+  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the screen edge
   treeW = root.clientWidth;
 
   const f = rel(fork!);
@@ -158,8 +158,8 @@ function build() {
     return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
   });
 
-  // the hero line starts under the name, runs right and turns down into the trunk; it is part of the
-  // tree, so it slides in with it
+  // the hero line runs from the left edge of the screen to the trunk and turns down into it; it is part
+  // of the tree, so it slides in with it
   segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
