@@ -1,11 +1,15 @@
 // An 8-bit pup that lives on the hero line. It starts out hiding behind the last letter of the name with
 // only its face showing, pops out when the page is scrolled, drops onto the line and wanders along it,
 // leaving paw prints that fade as it walks on. It follows the cursor (or the last tap), gets excited when
-// you hover close, naps when nobody is paying attention and barks if you click it.
+// you hover close, naps when nobody is paying attention and barks if you click it. As the page scrolls it
+// hops from the line onto the project cards, and from card to card, to stay in the window.
 //
 // Pure decoration: aria-hidden, no pointer events of its own, and the page is complete without it. graph.ts
 // owns the geometry: it calls layout() when the tree is rebuilt and sync() on every paint. This module owns
 // the little state machine and its animation loop; the pixel art is in pup-art.ts.
+//
+// It stands on a "platform": index 0 is the hero line, index i > 0 is the i-th card, in document order, which
+// is top to bottom.
 
 import { COLORS, paths, POSES, WALK, RUN, drawBody, drawFace, type FaceOpts, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } from './pup-art';
 
@@ -27,6 +31,14 @@ const SPRINT = 52; // ...and how fast it runs when the cursor is a way off
 const TEETER = 1.5; // s it spends wobbling on an edge
 const WARY = 10; // s after a scare that it keeps a few steps back from the edge
 const EDGE_SAFE = 8; // art pixels it stays back by while wary
+const CARD_INSET = 6; // art pixels in from a card's edge that its centre may go: past that it teeters
+const BAR = 56; // px: the fixed top bar (BAR_H in graph.ts)
+const TOP_EDGE = 90; // px from the top of the window: with its feet this high (or higher) it hops further down...
+const BOTTOM_EDGE = 40; // ...and with them this close to the bottom (or lower) it hops further up
+const LEAP_COOLDOWN = 0.6; // s after a landing before scrolling can set it off again
+const LEAP_RISE = 6; // art pixels it clears the higher end of a hop by...
+const LEAP_ARC = 8; // ...plus a little more the further across it goes, up to this
+const LEAP_G = 1.5; // a hop is quicker than a plain fall: it pushes off, and the page won't wait
 
 export interface PupStem {
   x: number; // the right-hand edge of the letter it hides behind, at height y...
@@ -34,12 +46,21 @@ export interface PupStem {
   slope: number; // ...and how far that edge moves for each px of height (italic letters lean)
   cy: number; // height the face sits at
 }
+/** A project card the dog can stand on, in tree coordinates (the box is the card's layout box, without its reveal transform). */
+export interface PupCard {
+  x: number;
+  y: number; // the top edge: where its feet go
+  w: number;
+  h: number;
+  el: HTMLElement; // the .entry; it has the class `in` while its card is revealed
+}
 export interface PupWorld {
   lineY: number; // y of the hero line's centre, in tree coordinates
   endRest: number; // x where the line turns down into the trunk once the tree is in place
   nameEnd: number; // x of the right edge of the name; the dog keeps clear of it when there is open line beside it
   unit: number; // px per art pixel
   stem: PupStem;
+  cards: PupCard[]; // top to bottom
 }
 export interface PupView {
   scrollY: number;
@@ -49,10 +70,11 @@ export interface PupView {
   still: boolean; // prefers-reduced-motion
 }
 
-// leave: running out of the left edge because the line has become too short to stand on; away: gone, until
-// the line is long enough again
-// teeter: wobbling on the edge of the line, trying not to fall off
-type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'leave' | 'away';
+// leave: running out of the left edge because the line has become too short to stand on (and there is no
+// card to hop to); away: gone, until there is somewhere to stand again
+// teeter: wobbling on the edge of the line or a card, trying not to fall off
+// leap: in the air between two platforms
+type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'leave' | 'away' | 'leap';
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
 const easeOut = (t: number) => 1 - (1 - clamp(t)) ** 3;
@@ -79,7 +101,8 @@ export function createPup(host: HTMLElement) {
   let faceArt: SVGSVGElement | undefined;
   let faceFrames = new Map<string, SVGGElement>();
   let faceKey = '';
-  let paws: { el: SVGSVGElement; x: number; y: number; at: number; o: number }[] = [];
+  // card: the card a print was left on (null: the line), so it goes when that card is put away
+  let paws: { el: SVGSVGElement; x: number; y: number; at: number; o: number; card: HTMLElement | null }[] = [];
 
   let state: State = 'peek';
   let started = false;
@@ -88,6 +111,17 @@ export function createPup(host: HTMLElement) {
   let feet = 0; // bottom edge of the body sprite
   let vy = 0;
   let vx = 0; // sideways speed while it is in the air (hopping back from an edge)
+  // The platform it stands on (0: the line, i > 0: the i-th card) and the one it is leaping to. The elements
+  // are what it really stands on; the indices are re-found from them whenever the cards are measured again.
+  let perch = 0;
+  let perchEl: HTMLElement | null = null;
+  let dest = 0;
+  let destEl: HTMLElement | null = null;
+  // the arc of the current leap, in tree coordinates: from (x0, y0) to (x1, y1), launched at vy0, taking T s
+  let arc = { x0: 0, y0: 0, x1: 0, y1: 0, vy0: 0, T: 1 };
+  let readyAt = 0; // earliest time scrolling may set off another leap
+  let scrollV = 0; // smoothed scroll speed, px/s (+ going down), as of the time scrollAt
+  let scrollAt = -1e9;
   let facing: 1 | -1 = 1;
   let quiet = false; // landing from a hop in place rather than a fall: no puff
   let phew = false; // say so once it is back on its feet
@@ -162,7 +196,7 @@ export function createPup(host: HTMLElement) {
       el.innerHTML = paths(PAW_GRID, COLORS);
       el.style.opacity = '0';
       layer.append(el);
-      return { el, x: 0, y: 0, at: -1e9, o: 0 };
+      return { el, x: 0, y: 0, at: -1e9, o: 0, card: null };
     });
   }
 
@@ -195,21 +229,73 @@ export function createPup(host: HTMLElement) {
 
   const half = () => (W * u) / 2;
   const lineEnd = () => (world ? world.endRest + view.dx : 0);
-  const lo = () => half() + 2; // the sprite's left edge stays on screen...
+
+  // Platform i: 0 is the line, i > 0 is card i - 1. Where its feet go, and the stretch its centre may be on.
+  const card = (i: number) => world!.cards[i - 1];
+  const floorOf = (i: number) => (i > 0 ? card(i).y : world!.lineY - 1);
+  // Along the line the sprite's left edge stays on screen...
+  const loOf = (i: number) => (i > 0 ? card(i).x + CARD_INSET * u : half() + 2);
   // ...and so does its right edge, with its snout over the line (the line runs past the screen's edge
-  // while the tree is still sliding in)
-  const hi = () => Math.min(lineEnd() - half(), view.width - half() - 2);
-  // can a dog stand on the line at all? On a phone the line is only a short stub once the tree is in place.
-  const fits = () => hi() - lo() >= 2 * u;
+  // while the tree is still sliding in). On a card it can go as far as its front paws at the edge.
+  const hiOf = (i: number) =>
+    i > 0 ? card(i).x + card(i).w - CARD_INSET * u : Math.min(lineEnd() - half(), view.width - half() - 2);
+  // can a dog stand on it at all? On a phone the line is only a short stub once the tree is in place.
+  const fitsOf = (i: number) => hiOf(i) - loOf(i) >= 2 * u;
+  const floorY = () => floorOf(perch);
+  const lo = () => loOf(perch);
+  const hi = () => hiOf(perch);
+  const fits = () => fitsOf(perch);
   // The stretch it wanders on. Where there is open line beside the name it keeps clear of the name (on a
   // phone the dog is nearly as tall as the name, so standing under it hides the logo); otherwise the whole
-  // line. When it is following the cursor it may go anywhere on the line.
+  // line, or the whole of a card. When it is following the cursor it may go anywhere on the platform.
   function zone(): [number, number] {
+    if (perch > 0) return [lo(), hi()];
     const clear = world!.nameEnd + 8 + half();
     return hi() - clear >= 1.5 * half() ? [clear, hi()] : [lo(), hi()];
   }
   const grounded = () =>
     state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'teeter' || state === 'leave';
+
+  // ---- platforms ------------------------------------------------------------------------------------
+
+  const indexOf = (el: HTMLElement | null) => (el && world ? world.cards.findIndex((c) => c.el === el) + 1 : 0);
+  function stand(i: number) {
+    perch = i;
+    perchEl = i > 0 ? card(i).el : null;
+  }
+  // somewhere to stand: the line while it is long enough, a card while it is revealed (before that it is
+  // invisible; it is put away again when you scroll back up)
+  const live = (i: number) => (i > 0 ? card(i).el.classList.contains('in') : fitsOf(0));
+  // where the platform's top is in the window
+  const windowY = (i: number) => view.treeTop + floorOf(i) - view.scrollY;
+  // how fast the page is being scrolled (px/s, positive going down); nothing if it has stopped
+  const scrollSpeed = () => (nowS() - scrollAt > 0.12 ? 0 : scrollV);
+  // Is y (in the window) somewhere good to land: far enough from the bar and the bottom that all of the dog
+  // is seen below the bar?
+  const comfy = (y: number) => y >= BAR + H * u + 8 && y <= innerHeight - 56;
+  // The platform to hop to, among those it can land on in the window: the one that will be nearest 40% of the
+  // way down it (so the longest in view, and nowhere near being put away again). dir 1 looks at the ones
+  // after the one it stands on, dir -1 at those before it (and, with `any`, falls back on the nearest one
+  // that is revealed at all), dir 0 at all of them. -1 if there is none.
+  function pickSpot(dir: 1 | -1 | 0, any = false): number {
+    const n = world!.cards.length;
+    const want = Math.max(BAR + H * u + 60, innerHeight * 0.4);
+    let best = -1;
+    let bestD = Infinity;
+    const [from, to] = dir > 0 ? [perch + 1, n] : dir < 0 ? [0, perch - 1] : [0, n];
+    for (let i = from; i <= to; i++) {
+      if (!live(i)) continue;
+      const p = planArc(i, aimX(i, 0.5), state === 'away');
+      // where it will be in the window by the time it gets there, given how fast the page is moving, and
+      // (hopping up) that the top of the arc stays out from under the bar
+      const y = windowY(i) - scrollSpeed() * p.T;
+      if (!comfy(y) || (dir < 0 && view.treeTop + p.top - view.scrollY < BAR - 16)) continue;
+      const d = Math.abs(y - want);
+      if (d < bestD) { best = i; bestD = d; }
+    }
+    if (best < 0 && any && dir < 0) for (let i = perch - 1; i >= 0 && best < 0; i--) if (live(i)) best = i;
+    return best;
+  }
   const near = () => half() * 0.9 + 6; // close enough to the cursor to sit and look at it
 
   // where the face is, while it peeks (tree coordinates; the letter's edge is a leaning line)
@@ -278,7 +364,7 @@ export function createPup(host: HTMLElement) {
   // ---- state changes --------------------------------------------------------------------------------
 
   function settle() {
-    // standing on the line
+    // standing on the line (or a card)
     state = 'idle';
     t = 0;
     vy = 0;
@@ -303,6 +389,7 @@ export function createPup(host: HTMLElement) {
     vy = -Math.sqrt(2 * GRAVITY * u * HOP * u);
     vx = 0;
     quiet = false;
+    stand(0);
     setPose('fall');
   }
 
@@ -311,7 +398,7 @@ export function createPup(host: HTMLElement) {
     t = 0;
     vy = 0;
     vx = 0;
-    feet = world!.lineY - 1;
+    feet = floorY();
     setPose('land');
     if (!view.still && !quiet) puff(x, feet - u * 1.5);
     if (phew) say('phew', x, feet - H * u - 2);
@@ -338,6 +425,109 @@ export function createPup(host: HTMLElement) {
     t = 0;
     facing = dir;
     goal = x + dir * dist;
+  }
+
+  // where on platform j to land, `f` of the way across the middle of it (cards: the middle 40%)
+  function aimX(j: number, f: number) {
+    if (j > 0) {
+      const c = card(j);
+      return clamp(c.x + c.w * (0.3 + 0.4 * f), loOf(j), Math.max(loOf(j), hiOf(j)));
+    }
+    const a = loOf(0);
+    return a + Math.max(0, hiOf(0) - a) * (0.2 + 0.6 * f);
+  }
+
+  // The arc for a hop to x1 on platform j, ballistic and in tree coordinates, so scrolling while it is in the
+  // air doesn't change it. It rises a little above the higher end, more the further it has to go sideways.
+  // From a long way out of the window (a fast flick, or when it is away) it starts from just outside the
+  // window instead, which looks like dropping in from above (or leaping up from below).
+  function planArc(j: number, x1: number, outside: boolean) {
+    const g = GRAVITY * LEAP_G * u;
+    const winTop = view.scrollY - view.treeTop; // tree y of the top of the window
+    const winBottom = winTop + innerHeight;
+    let x0 = x;
+    let y0 = feet;
+    if (outside || y0 < winTop - H * u - 40) {
+      y0 = winTop - H * u - 24;
+      x0 = clamp(x1 + rand(-70, 70), half() + 2, Math.max(half() + 2, view.width - half() - 2));
+    } else if (y0 - H * u > winBottom + 40) {
+      y0 = winBottom + H * u + 24;
+    }
+    const y1 = floorOf(j);
+    const top = Math.min(y0, y1) - (LEAP_RISE * u + Math.min(0.06 * Math.abs(x1 - x0), LEAP_ARC * u));
+    const vy0 = -Math.sqrt(2 * g * (y0 - top));
+    const T = -vy0 / g + Math.sqrt((2 * (y1 - top)) / g);
+    return { x0, y0, x1, y1, vy0, T, top };
+  }
+
+  // Hop to platform j.
+  function leapTo(j: number, fromOutside = false) {
+    arc = planArc(j, aimX(j, Math.random()), fromOutside);
+    x = arc.x0;
+    feet = arc.y0;
+    dest = j;
+    destEl = j > 0 ? card(j).el : null;
+    const dx = arc.x1 - x;
+    if (Math.abs(dx) > 4) facing = dx >= 0 ? 1 : -1;
+    state = 'leap';
+    t = 0;
+    vx = 0;
+    vy = arc.vy0;
+    quiet = false;
+    phew = false;
+    setPose('run0');
+    if (!fromOutside && !view.still) puff(x, feet - u * 1.5, 3, 1.2);
+  }
+
+  function stepLeap() {
+    const g = GRAVITY * LEAP_G * u;
+    const k = Math.min(t, arc.T);
+    // the closed form rather than integrating, so it comes down exactly where it was aimed
+    feet = arc.y0 + arc.vy0 * k + 0.5 * g * k * k;
+    x = arc.x0 + (arc.x1 - arc.x0) * (k / arc.T);
+    vy = arc.vy0 + g * k;
+    setPose(vy < 0 ? 'run0' : 'fall');
+    if (t < arc.T) return;
+    stand(dest);
+    x = clamp(x, lo(), Math.max(lo(), hi()));
+    land();
+    // a pause so it doesn't chain-hop, unless scrolling has already carried the platform out of the window
+    // while it was in the air: then it should hop on at once
+    const y = windowY(perch);
+    readyAt = nowS() + (y < TOP_EDGE || y > innerHeight - BOTTOM_EDGE ? 0.1 : LEAP_COOLDOWN);
+  }
+
+  // Scrolling has taken the platform it stands on out of the window (or put it away under its feet): hop to
+  // another one. Returns true if it did something about it.
+  function considerLeap(s: number): boolean {
+    if (view.still || state === 'land') return false;
+    const winY = view.treeTop + floorY() - view.scrollY; // where its feet are in the window
+    const gone = perch > 0 && !live(perch);
+    let dir: 1 | -1;
+    if (gone) dir = -1;
+    else if (s < readyAt && winY > BAR + 8) return false; // not again so soon, unless it is about to go under the bar
+    else if (winY < TOP_EDGE + (LEAP_RISE + LEAP_ARC) * u) dir = 1;
+    else if (winY > innerHeight - BOTTOM_EDGE) dir = -1;
+    else return false;
+    const j = pickSpot(dir, gone);
+    if (j >= 0) {
+      if (!gone && dir > 0) {
+        // it sets off early enough that the top of the arc is still below the bar, not under it
+        const p = planArc(j, aimX(j, 0.5), false);
+        if (view.treeTop + p.top - view.scrollY >= TOP_EDGE) return false;
+      }
+      leapTo(j);
+      return true;
+    }
+    if (gone) {
+      // its card is put away and there is nothing above it to stand on: it vanishes in a puff, and comes back
+      // when there is somewhere to be
+      puff(x, feet - (H * u) / 2, 6, 1.4);
+      state = 'away';
+      t = 0;
+      return true;
+    }
+    return false;
   }
 
   // a click on it: a bark and a little hop
@@ -377,7 +567,8 @@ export function createPup(host: HTMLElement) {
     side = (-side) as 1 | -1;
     const k = pr();
     p.x = x - facing * 1.5 * u;
-    p.y = world!.lineY + side * Math.round(PAW_H * k * 0.22);
+    p.y = floorY() + 1 + side * Math.round(PAW_H * k * 0.22);
+    p.card = perchEl;
     p.at = travel;
     p.o = -1;
     p.el.style.left = `${Math.round(p.x - (PAW_W * k) / 2)}px`;
@@ -389,8 +580,9 @@ export function createPup(host: HTMLElement) {
     const end = lineEnd();
     for (const p of paws) {
       // eight-bit fade: four steps; a print is gone once the dog has walked a fixed distance on, or once
-      // the line has been pulled back from under it
-      const o = p.x > end - 2 ? 0 : Math.ceil(clamp(1 - (travel - p.at) / life) * 4) / 4;
+      // the line has been pulled back from under it (or its card put away)
+      const away = p.card ? !p.card.classList.contains('in') : p.x > end - 2;
+      const o = away ? 0 : Math.ceil(clamp(1 - (travel - p.at) / life) * 4) / 4;
       if (o !== p.o) { p.o = o; p.el.style.opacity = String(o); }
     }
   }
@@ -432,7 +624,6 @@ export function createPup(host: HTMLElement) {
 
   function step(dt: number) {
     t += dt;
-    const w = world!;
     const s = nowS();
 
     if (state === 'peek') { stepPeek(); return; }
@@ -441,24 +632,32 @@ export function createPup(host: HTMLElement) {
       vy += GRAVITY * u * dt;
       feet += vy * dt;
       if (vx) x = clamp(x + vx * dt, lo(), Math.max(lo(), hi()));
-      if (vy > 0 && feet >= w.lineY - 1) land();
+      if (vy > 0 && feet >= floorY()) land();
       return;
     }
 
-    // on the line from here on
-    feet = w.lineY - 1;
+    if (state === 'leap') { stepLeap(); return; }
+
+    // on the line (or a card) from here on
+    feet = floorY();
 
     if (state === 'away') {
-      // back once the line is long enough again (scrolled back to the top): it walks in from the left edge
-      if (!fits()) return;
+      // back once there is somewhere to stand in the window: on the line (scrolled back to the top, so it is
+      // long enough again) it walks in from the left edge; on a card it drops in from above
+      const j = pickSpot(0);
+      if (j < 0) return;
+      if (j > 0) { leapTo(j, true); return; }
+      stand(0);
       x = -half() - 2;
       state = 'walk';
       facing = 1;
       goal = zone()[0] + rand(6, 14) * u;
       t = 0;
-    } else if (!fits() && state !== 'leave') {
-      // the tree has slid in and left only a stub of line: run out of the left edge rather than hang
-      // half off the screen
+    } else if (perch === 0 && !fits() && state !== 'leave') {
+      // The tree has slid in and left only a stub of line. It hops to the first card if one is there to land
+      // on; otherwise it runs out of the left edge rather than hang half off the screen.
+      const j = pickSpot(1);
+      if (j > 0 && !view.still) { leapTo(j); return; }
       state = 'leave';
       facing = -1;
       t = 0;
@@ -474,7 +673,10 @@ export function createPup(host: HTMLElement) {
     }
 
     const top = hi();
-    if (x > top) {
+    if (perch > 0) {
+      // a card doesn't move under it, except when the page is laid out again
+      x = clamp(x, lo(), Math.max(lo(), top));
+    } else if (x > top) {
       // the line is being pulled in from under the dog (the tree slides in as you scroll): it keeps its
       // footing and trots along ahead of the end
       const from = x;
@@ -482,6 +684,8 @@ export function createPup(host: HTMLElement) {
       if (state !== 'walk' || facing > 0) { state = 'walk'; facing = -1; goal = x - 6 * u; t = 0; }
       travel += Math.abs(from - x);
     }
+
+    if (considerLeap(s)) return;
 
     const want = attention();
     // where it goes to meet the cursor: a few steps short of an edge it has just had a fright at
@@ -590,7 +794,6 @@ export function createPup(host: HTMLElement) {
 
   function render() {
     if (!world || !art) return;
-    const w = world;
 
     if (state === 'peek') {
       const b = faceBox();
@@ -611,7 +814,7 @@ export function createPup(host: HTMLElement) {
 
     if (shown.faceVis !== 'hidden') { shown.faceVis = 'hidden'; face.style.visibility = 'hidden'; }
     if (!pose) setPose(state === 'drop' ? 'fall' : state === 'land' ? 'land' : state === 'sleep' ? 'lie' : 'sit'); // after a rebuild
-    if (grounded()) feet = w.lineY - 1;
+    if (grounded()) feet = floorY();
 
     // rocking on the edge: swings out and back, a bit further each time
     const wobble = state === 'teeter' ? (Math.floor(t / 0.11) % 2 ? -1 : 1) * facing * Math.round(u * (0.5 + t / TEETER)) : 0;
@@ -636,6 +839,7 @@ export function createPup(host: HTMLElement) {
 
   function onScreen() {
     if (!world) return false;
+    if (state === 'leap') return true; // it may start from outside the window; it has to come down either way
     const y = view.treeTop + feet - view.scrollY;
     return y > -40 && y - H * u < innerHeight + 40;
   }
@@ -648,7 +852,12 @@ export function createPup(host: HTMLElement) {
     if (!view.still) step(dt);
     render();
     fadePaws();
-    if (!view.still && onScreen() && !document.hidden) raf = requestAnimationFrame(tick);
+    // Parks while it is out of the window, but not before it has had the chance to decide to come back: for
+    // a moment after the page stops moving (its speed has to settle, which no scroll event will announce),
+    // and until the pause after a landing is over.
+    const s = nowS();
+    const deciding = s < Math.max(scrollAt + 0.4, readyAt + 0.05);
+    if (!view.still && (onScreen() || deciding) && !document.hidden) raf = requestAnimationFrame(tick);
   }
 
   function wake() {
@@ -684,6 +893,9 @@ export function createPup(host: HTMLElement) {
     layout(w: PupWorld) {
       const resized = !world || w.unit !== world.unit;
       world = w;
+      // the cards are new objects, and may have moved or gone: find the ones it was on and heading for again
+      perch = indexOf(perchEl);
+      dest = indexOf(destEl);
       if (resized) build();
       if (!started) return;
       render();
@@ -691,7 +903,15 @@ export function createPup(host: HTMLElement) {
     },
     /** Called on every paint; cheap. */
     sync(v: PupView) {
-      if (v.scrollY !== view.scrollY) lastActive = nowS();
+      if (v.scrollY !== view.scrollY) {
+        const n = nowS();
+        lastActive = n;
+        // speed between two scroll changes, smoothed over about a tenth of a second
+        const dt = n - scrollAt;
+        if (dt > 0.002 && dt < 0.25) scrollV += ((v.scrollY - view.scrollY) / dt - scrollV) * Math.min(1, dt / 0.1);
+        else if (dt >= 0.25) scrollV = 0;
+        scrollAt = n;
+      }
       view = v;
       if (!world) return;
       const inFront = () => clamp(world!.nameEnd + 8 + half(), lo(), Math.max(lo(), hi()));
@@ -722,6 +942,8 @@ export function createPup(host: HTMLElement) {
         }
       }
       if (v.still && state !== 'peek') {
+        stand(0); // no hopping about: it just sits on the line
+        feet = floorY();
         if (!fits()) state = 'away';
         else {
           if (state === 'away') settle();

@@ -345,7 +345,9 @@ function build() {
   }
   dots.push({ x: tx, y: headY, kind: 'head' });
 
-  // the dog stands on the hero line; it peeks over the name before that
+  // the dog stands on the hero line, and hops from card to card as you scroll; it peeks over the name before
+  // that. The cards are measured as laid out (offsets), not as drawn: a card that has not been revealed yet
+  // is nudged down by its transform, and one under the cursor up.
   const ox = nm.x; // the name's top-left in tree coordinates, as it sits at the top of the page
   const oy = nm.top - treeTop;
   pup?.layout({
@@ -354,6 +356,11 @@ function build() {
     nameEnd: ox + nm.cyril.x + nm.cyril.w,
     unit: Math.min(4, Math.max(2, Math.round(nm.fs / 26))), // whole px per art pixel, scaled with the name
     stem: { x: ox + nm.stem.x, y: oy + nm.stem.y, slope: nm.stem.slope, cy: oy + nm.stem.cy },
+    cards: rows.map((el) => {
+      const c = el.querySelector<HTMLElement>('.card')!;
+      const e = rel(el);
+      return { el, x: e.x + c.offsetLeft, y: e.y + c.offsetTop, w: c.offsetWidth, h: c.offsetHeight };
+    }),
   });
 
   render();
