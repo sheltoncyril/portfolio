@@ -2,6 +2,8 @@
 // draws it as the reader scrolls. The <ol> underneath is the real content; the
 // SVG is decoration (aria-hidden), so everything works if this script doesn't.
 
+import { createPup } from './pup';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const R = 28; // corner radius where the hero line turns down
 const F = 70; // vertical run of a fork / merge curve
@@ -41,11 +43,15 @@ let treeTop = 0;
 let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
 let slid = ''; // last transform written to the SVG
 let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
-const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
+// cyril: where the word "Cyril" sits inside the name at full size (x, width), and the y of the top of its
+// lowercase letters (edge), all relative to the name's top-left; the dog peeks over that edge
+const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400, fs: 16, cyril: { x: 0, w: 0, edge: 0 } };
+let pup: ReturnType<typeof createPup> | undefined;
 
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
   root.classList.add('graph-ready');
+  pup = createPup(tree);
 
   const q = new URLSearchParams(location.search).get('layout');
   const saved = safe(() => localStorage.getItem('layout'));
@@ -115,6 +121,24 @@ function measureName() {
   nm.tx = parseFloat(getComputedStyle(document.querySelector('.bar')!).paddingLeft) || 20;
   nm.ty = (BAR_H - r.height * nm.scale) / 2;
   nm.dist = Math.min(innerHeight * 0.55, 460);
+  nm.fs = fs;
+
+  const word = nameEl.querySelector<HTMLElement>('span:last-child');
+  if (word) {
+    const c = word.getBoundingClientRect();
+    // an empty inline-block sits on the baseline, which the layout box alone doesn't give us
+    const probe = document.createElement('i');
+    probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+    word.append(probe);
+    const baseline = probe.getBoundingClientRect().bottom;
+    probe.remove();
+    const st = getComputedStyle(word);
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (ctx) ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
+    const xh = (ctx && ctx.measureText('x').actualBoundingBoxAscent) || fs * 0.45;
+    // a hair below the top of the lowercase letters, so the dog's chin tucks behind them
+    nm.cyril = { x: c.left - r.left, w: c.width, edge: baseline - r.top - xh * 0.88 };
+  }
 }
 
 function build() {
@@ -213,6 +237,15 @@ function build() {
   }
   dots.push({ x: tx, y: headY, kind: 'head' });
 
+  // the dog stands on the hero line; it peeks over the name before that
+  pup?.layout({
+    lineY: y0,
+    endRest: tx - r,
+    headX: nm.x + nm.cyril.x + nm.cyril.w * 0.62,
+    edgeY: nm.top - treeTop + nm.cyril.edge,
+    unit: Math.min(4, Math.max(3, Math.round(nm.fs / 34))), // whole device pixels per art pixel, scaled with the name
+  });
+
   render();
 }
 
@@ -262,6 +295,7 @@ function paint() {
   const e = dockProgress();
   paintName(e);
   paintTree(e);
+  pup?.sync({ scrollY, treeTop, dx: (1 - e) * treeW, still });
   // the lane labels, the layout toggle and the cards wait until the tree has finished sliding in, so
   // none of them is ever seen next to a tree that's still off its mark
   const placed = e >= 0.99;
