@@ -47,15 +47,6 @@ export const upstreamProjects: UpstreamProject[] = [
     span: 'Mar – Jun 2026',
   },
   {
-    id: 'odh-build-config',
-    repo: 'opendatahub-io/ODH-Build-Config',
-    title: 'ODH-Build-Config',
-    summary:
-      'Build and release configuration for Open Data Hub. 5 commits wiring in the related images for eval-hub, NeMo Guardrails and the garak provider.',
-    tags: ['Release engineering', 'Tekton', 'Containers'],
-    span: 'Apr – May 2026',
-  },
-  {
     id: 'openshift-python-wrapper',
     repo: 'RedHatQE/openshift-python-wrapper',
     title: 'openshift-python-wrapper',
