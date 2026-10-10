@@ -13,14 +13,16 @@ Personal portfolio built with [Astro](https://astro.build). A line runs right un
 
 ## The dog
 
-`src/scripts/pup.ts` is self-contained decoration (aria-hidden, no pointer events). `graph.ts` measures the name and the hero line and hands it a small `PupWorld` (`layout()`, on every rebuild) plus the scroll state (`sync()`, on every paint); everything else lives in `pup.ts`:
+Self-contained decoration (aria-hidden, no pointer events of its own). `graph.ts` measures the name and the hero line and hands the dog a small `PupWorld` (`layout()`, on every rebuild) plus the scroll state (`sync()`, on every paint).
 
-- the sprite is composed from rectangles in `draw()` and auto-outlined; the poses are listed in `POSES`
-- a small state machine (`peek` → `drop` → `land` → `idle` ⇄ `walk`) runs on its own `requestAnimationFrame` loop, which parks itself when the dog is off screen or the tab is hidden
+- `src/scripts/pup-art.ts` is the pixel art: a side-on body (`POSES`), a front-on face and a paw print, composed from rectangles and auto-outlined
+- `src/scripts/pup.ts` is the behaviour: a small state machine (`peek` → `drop` → `land` → `idle` ⇄ `walk` / `sniff` / `sleep`, plus `leave` / `away` when the line is too short to stand on) on its own `requestAnimationFrame` loop, which parks itself when the dog is off screen or the tab is hidden
+- it starts as a face looking out from behind the last letter of the name. `graph.ts` finds that letter's right-hand edge by drawing it on a canvas in the name's font, so the face is cut along the letter whatever the font. The name uses a heavy face (Abril Fatface) so the letter is solid enough to hide behind
+- it follows the cursor (or the last tap), sits and looks at you if you hover close, naps when nothing happens for a few seconds, and barks if you click it
 - paw prints come from a small pool and fade by distance walked, not by time
 - with `prefers-reduced-motion` it just sits on the line
 
-To make it interactive, add a state next to the existing ones and have `step()` react to it.
+To add behaviour, add a state next to the existing ones and have `step()` react to it.
 
 ## Develop
 

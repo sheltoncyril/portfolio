@@ -43,9 +43,14 @@ let treeTop = 0;
 let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
 let slid = ''; // last transform written to the SVG
 let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
-// cyril: where the word "Cyril" sits inside the name at full size (x, width), and the y of the top of its
-// lowercase letters (edge), all relative to the name's top-left; the dog peeks over that edge
-const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400, fs: 16, cyril: { x: 0, w: 0, edge: 0 } };
+// cyril: where the word "Cyril" sits inside the name at full size (x, width); stem: the right-hand edge of its
+// last letter (a line: x at y, and how far x moves per px of y, since the letters lean) and the height the
+// pup's face sits at. All relative to the name's top-left; the pup hides behind that letter.
+const nm = {
+  x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400, fs: 16,
+  cyril: { x: 0, w: 0 },
+  stem: { x: 0, y: 0, slope: 0, cy: 0 },
+};
 let pup: ReturnType<typeof createPup> | undefined;
 
 function init() {
@@ -72,7 +77,7 @@ function init() {
   // they have even been requested.
   document.fonts?.ready.then(() => schedule(true));
   document.fonts?.addEventListener?.('loadingdone', () => schedule(true));
-  document.fonts?.load('italic 1em "Instrument Serif"').then(() => schedule(true), () => {});
+  document.fonts?.load('italic 1em "Abril Fatface"').then(() => schedule(true), () => {});
   addEventListener('load', () => schedule(true));
   build();
   paint();
@@ -132,19 +137,66 @@ function measureName() {
   const word = nameEl.querySelector<HTMLElement>('span:last-child');
   if (word) {
     const c = word.getBoundingClientRect();
+    nm.cyril = { x: c.left - r.left, w: c.width };
     // an empty inline-block sits on the baseline, which the layout box alone doesn't give us
     const probe = document.createElement('i');
     probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
     word.append(probe);
-    const baseline = probe.getBoundingClientRect().bottom;
+    const baseline = probe.getBoundingClientRect().bottom - r.top;
     probe.remove();
-    const st = getComputedStyle(word);
-    const ctx = document.createElement('canvas').getContext('2d');
-    if (ctx) ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
-    const xh = (ctx && ctx.measureText('x').actualBoundingBoxAscent) || fs * 0.45;
-    // a hair below the top of the lowercase letters, so the dog's chin tucks behind them
-    nm.cyril = { x: c.left - r.left, w: c.width, edge: baseline - r.top - xh * 0.88 };
+    nm.stem = stemOf(word, r, baseline, fs);
   }
+}
+
+// The right-hand edge of the last letter of the word, found by drawing that letter on a canvas in the same
+// font and reading its pixels: that works for any font (serifs, slanted or not) without knowing its metrics.
+function stemOf(word: HTMLElement, name: DOMRect, baseline: number, fs: number) {
+  const text = word.lastChild;
+  // fallback if anything below fails: a typical upright-ish stem a little in from the right of the word
+  const fallback = { x: nm.cyril.x + nm.cyril.w - fs * 0.12, y: baseline - fs * 0.3, slope: -0.2, cy: baseline - fs * 0.38 };
+  if (!text || text.nodeType !== 3 || !(text as Text).length) return fallback;
+  const n = (text as Text).length;
+  const range = document.createRange();
+  range.setStart(text, n - 1);
+  range.setEnd(text, n);
+  const originX = range.getBoundingClientRect().left - name.left; // where the letter's drawing starts
+
+  const st = getComputedStyle(word);
+  const k = 2; // draw at twice the size for sub-pixel accuracy
+  const size = fs * k;
+  const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  if (!ctx) return fallback;
+  const pad = Math.ceil(size * 0.3);
+  const base = Math.ceil(size * 1.1);
+  const cw = Math.ceil(size * 1.5);
+  const ch = Math.ceil(size * 1.4);
+  ctx.canvas.width = cw;
+  ctx.canvas.height = ch;
+  ctx.font = `${st.fontStyle} ${st.fontWeight} ${size}px ${st.fontFamily}`;
+  ctx.fillStyle = '#000';
+  ctx.fillText((text as Text).data[n - 1], pad, base);
+  let data: Uint8ClampedArray;
+  try { data = ctx.getImageData(0, 0, cw, ch).data; } catch { return fallback; }
+
+  const inkRight = (row: number) => {
+    for (let px = cw - 1; px >= 0; px--) if (data[(row * cw + px) * 4 + 3] > 110) return px;
+    return -1;
+  };
+  let topRow = -1;
+  for (let row = 0; row < ch && topRow < 0; row++) if (inkRight(row) >= 0) topRow = row;
+  if (topRow < 0 || topRow >= base) return fallback;
+  const height = base - topRow; // how tall the letter stands above the baseline, in canvas px
+  // two rows well inside the letter, clear of its serifs
+  const rowA = Math.round(base - height * 0.28);
+  const rowB = Math.round(base - height * 0.8);
+  const xa = inkRight(rowA);
+  const xb = inkRight(rowB);
+  if (xa < 0 || xb < 0) return fallback;
+  const toX = (px: number) => originX + (px - pad) / k;
+  const toY = (row: number) => baseline + (row - base) / k;
+  const ya = toY(rowA);
+  const yb = toY(rowB);
+  return { x: toX(xa), y: ya, slope: (toX(xb) - toX(xa)) / (yb - ya), cy: baseline - (height / k) * 0.52 };
 }
 
 function build() {
@@ -244,13 +296,14 @@ function build() {
   dots.push({ x: tx, y: headY, kind: 'head' });
 
   // the dog stands on the hero line; it peeks over the name before that
+  const ox = nm.x; // the name's top-left in tree coordinates, as it sits at the top of the page
+  const oy = nm.top - treeTop;
   pup?.layout({
     lineY: y0,
     endRest: tx - r,
-    headX: nm.x + nm.cyril.x + nm.cyril.w * 0.62,
-    edgeY: nm.top - treeTop + nm.cyril.edge,
-    nameEnd: nm.x + nm.cyril.x + nm.cyril.w,
+    nameEnd: ox + nm.cyril.x + nm.cyril.w,
     unit: Math.min(4, Math.max(2, Math.round(nm.fs / 26))), // whole px per art pixel, scaled with the name
+    stem: { x: ox + nm.stem.x, y: oy + nm.stem.y, slope: nm.stem.slope, cy: oy + nm.stem.cy },
   });
 
   render();

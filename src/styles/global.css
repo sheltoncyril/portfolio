@@ -13,6 +13,8 @@
   --font-sans: 'Geist Variable', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
   --font-display: 'Instrument Serif', Georgia, serif;
+  /* the name only: thick stems, so a letter is solid enough to hide a dog behind */
+  --font-name: 'Abril Fatface', 'Instrument Serif', Georgia, serif;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --wrap: 1200px;
   --pad: 20px;
@@ -117,10 +119,25 @@ a:hover { text-decoration-color: currentColor; }
 .pup { position: absolute; left: 0; top: 0; z-index: 5; will-change: transform; }
 .pup svg { display: block; shape-rendering: crispEdges; }
 .paw { position: absolute; z-index: 2; shape-rendering: crispEdges; }
+/* little effects: the puff when it lands or pops out, hearts, sleepy z's, the bark */
 .dust { position: absolute; z-index: 11; background: var(--trunk); opacity: 0; animation: dust 0.5s steps(4) forwards; }
 @keyframes dust {
   from { opacity: 0.9; transform: translate(0, 0); }
   to { opacity: 0; transform: translate(var(--dx), -12px); }
+}
+.fx { position: absolute; z-index: 13; pointer-events: none; opacity: 0; animation: fx-rise var(--ms, 1.2s) steps(8) forwards; }
+.fx svg { display: block; shape-rendering: crispEdges; }
+.fx-z { font: 700 0.75rem var(--font-mono); color: var(--muted); }
+.fx-say {
+  font: 600 0.72rem var(--font-mono); color: var(--text); white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px;
+  transform: translate(-50%, -100%);
+}
+@keyframes fx-rise {
+  0% { opacity: 0; margin-top: 4px; }
+  12% { opacity: 1; margin-top: 0; }
+  70% { opacity: 1; }
+  100% { opacity: 0; margin-top: var(--rise, -14px); margin-left: var(--drift, 0px); }
 }
 
 /* hero */
@@ -131,8 +148,8 @@ a:hover { text-decoration-color: currentColor; }
 .eyebrow { font: 500 0.8rem var(--font-mono); color: var(--muted); margin: 0 0 1.5rem; }
 .prompt { color: var(--hw); }
 .name {
-  font: 400 clamp(3.2rem, 12.5vw, 10.5rem)/0.9 var(--font-display);
-  letter-spacing: -0.02em; margin: 0 0 1.5rem; white-space: nowrap;
+  font: 400 clamp(2.6rem, 9.2vw, 8rem)/0.95 var(--font-name);
+  letter-spacing: -0.01em; margin: 0 0 1.5rem; white-space: nowrap;
 }
 .name a { text-decoration: none; }
 .name span:last-child { font-style: italic; color: var(--hw); }
