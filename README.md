@@ -1,6 +1,6 @@
 # sheltoncyril.io
 
-Personal portfolio built with [Astro](https://astro.build). Scrolling past the hero slides a git graph in from the right: hardware and software projects fork off `main` as two lanes, then merge back at the end.
+Personal portfolio built with [Astro](https://astro.build). A line runs under the intro from the start; as you scroll it pulls in to a trunk and a git graph slides in from the right: hardware and software projects fork off `main` as two lanes, then merge back at the end.
 
 ## Editing content
 
@@ -9,7 +9,7 @@ Personal portfolio built with [Astro](https://astro.build). Scrolling past the h
 
 ## How the graph works
 
-`src/scripts/graph.ts` measures the rendered project list and builds one SVG path per segment, then draws each as you scroll (`stroke-dashoffset`). The whole SVG waits off-screen to the right and is translated into place over the same first stretch of scroll that docks the name. The `<ol>` of projects is the real content; the SVG is decorative and hidden from assistive tech. With `prefers-reduced-motion` the graph is fully drawn. Two layouts: `lanes` (default) and `spurs` (`?layout=spurs`, or the toggle on the page).
+`src/scripts/graph.ts` measures the rendered project list and builds one SVG path per segment, then draws each as you scroll (`stroke-dashoffset`). The whole SVG waits one screen-width to the right and is translated into place over the same first stretch of scroll that docks the name; the hero line starts one screen-width to the left of the tree, so at scroll 0 it spans the screen and then shortens to the trunk as the tree arrives. The `<ol>` of projects is the real content; the SVG is decorative and hidden from assistive tech. With `prefers-reduced-motion` the graph is fully drawn. Two layouts: `lanes` (default) and `spurs` (`?layout=spurs`, or the toggle on the page).
 
 ## Develop
 

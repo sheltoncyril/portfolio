@@ -126,7 +126,12 @@ function build() {
 
   const tr = rel(trace!);
   const y0 = tr.y;
-  const x0 = -t.left; // the hero line starts at the left edge of the screen
+  treeW = root.clientWidth;
+  // The hero line starts one screen-width to the left of the tree. The tree waits one screen-width to the
+  // right, so at scroll 0 the line exactly spans the screen; as the tree slides in, the line's right end
+  // (the corner into the trunk) is pulled in from the right edge, and at rest it runs from the left edge
+  // of the screen to the trunk.
+  const x0 = -treeW - t.left;
   const a = rel(rows[0].querySelector('.anchor')!);
 
   // x of the trunk and of each lane / branch, per layout and breakpoint
@@ -143,8 +148,7 @@ function build() {
     tx = a.x + 26; hx = a.x + 10; sx = a.x + 42; rx = a.x + 58;
   }
   const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
-  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the screen edge
-  treeW = root.clientWidth;
+  const r = Math.max(8, Math.min(R, tx - 2)); // corner radius shrinks when the trunk is close to the screen edge
 
   const f = rel(fork!);
   const m = rel(merge!);
@@ -158,8 +162,7 @@ function build() {
     return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
   });
 
-  // the hero line runs from the left edge of the screen to the trunk and turns down into it; it is part
-  // of the tree, so it slides in with it
+  // the hero line runs to the trunk and turns down into it; it is part of the tree, so it slides in with it
   segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
   const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
   const own = entries.filter((e) => lane(e) !== 'rh');
@@ -285,7 +288,8 @@ function dockProgress() {
   return reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
 }
 
-// The tree moves as one rigid piece: off-screen to the right at e = 0, at its normal place at e = 1.
+// The tree moves as one rigid piece: one screen-width to the right at e = 0 (only the hero line, which
+// reaches back across the screen, is in view), at its normal place at e = 1.
 function paintTree(e: number) {
   const dx = (1 - e) * treeW;
   const t = dx > 0.5 ? `translate(${dx.toFixed(1)}px, 0)` : '';
