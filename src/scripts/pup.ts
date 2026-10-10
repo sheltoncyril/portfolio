@@ -12,6 +12,7 @@
 // is top to bottom.
 
 import { COLORS, paths, POSES, WALK, RUN, drawBody, drawFace, type FaceOpts, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } from './pup-art';
+import { BAR, GRAVITY, LEAP_ARC, LEAP_RISE, arcAt, clamp, pickSpot as pickSpotIn, planArc as planArcIn } from './pup-math';
 
 const HEAD_DX = 5.5; // art pixels from the body sprite's centre to the middle of its head...
 const HEAD_DY = 5.5; // ...and from its top
@@ -19,7 +20,6 @@ const COVER = 0.3; // how much of the face stays behind the letter
 const PEEK_AFTER = 0.8; // s before the face first slides out
 const PEEK_RISE = 0.6; // s the slide takes
 const TRIGGER = 6; // px of scroll that sets it off
-const GRAVITY = 520; // px/s² per px of art pixel, so a small dog on a phone falls as slowly as it looks
 const HOP = 12; // art pixels it jumps when it pops out
 const PAWS = 10; // size of the paw-print pool
 const PRINT_GAP = 6; // art pixels walked between two prints
@@ -35,13 +35,9 @@ const PLOP = 0.95; // s it sits where it came down, stunned, before it gets up
 const WARY = 10; // s after a scare that it keeps a few steps back from the edge
 const EDGE_SAFE = 8; // art pixels it stays back by while wary
 const CARD_INSET = 6; // art pixels in from a card's edge that its centre may go: past that it teeters
-const BAR = 56; // px: the fixed top bar (BAR_H in graph.ts)
 const TOP_EDGE = 90; // px from the top of the window: with its feet this high (or higher) it hops further down...
 const BOTTOM_EDGE = 40; // ...and with them this close to the bottom (or lower) it hops further up
 const LEAP_COOLDOWN = 0.6; // s after a landing before scrolling can set it off again
-const LEAP_RISE = 6; // art pixels it clears the higher end of a hop by...
-const LEAP_ARC = 8; // ...plus a little more the further across it goes, up to this
-const LEAP_G = 1.5; // a hop is quicker than a plain fall: it pushes off, and the page won't wait
 const DIVE_FLAP = 0.08; // s each frame of the skydive is held for
 
 export interface PupStem {
@@ -81,7 +77,6 @@ export interface PupView {
 // leap: in the air between two platforms
 type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'plop' | 'leave' | 'away' | 'leap';
 
-const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
 const easeOut = (t: number) => 1 - (1 - clamp(t)) ** 3;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const nowS = () => performance.now() / 1000;
@@ -278,31 +273,27 @@ export function createPup(host: HTMLElement) {
   const windowY = (i: number) => view.treeTop + floorOf(i) - view.scrollY;
   // how fast the page is being scrolled (px/s, positive going down); nothing if it has stopped
   const scrollSpeed = () => (nowS() - scrollAt > 0.12 ? 0 : scrollV);
-  // Is y (in the window) somewhere good to land: far enough from the bar and the bottom that all of the dog
-  // is seen below the bar?
-  const comfy = (y: number) => y >= BAR + H * u + 8 && y <= innerHeight - 56;
   // The platform to hop to, among those it can land on in the window: the one that will be nearest 40% of the
   // way down it (so the longest in view, and nowhere near being put away again). dir 1 looks at the ones
   // after the one it stands on, dir -1 at those before it (and, with `any`, falls back on the nearest one
   // that is revealed at all), dir 0 at all of them. -1 if there is none.
   function pickSpot(dir: 1 | -1 | 0, any = false): number {
-    const n = world!.cards.length;
-    const want = Math.max(BAR + H * u + 60, innerHeight * 0.4);
-    let best = -1;
-    let bestD = Infinity;
-    const [from, to] = dir > 0 ? [perch + 1, n] : dir < 0 ? [0, perch - 1] : [0, n];
-    for (let i = from; i <= to; i++) {
-      if (!live(i)) continue;
-      const p = planArc(i, aimX(i, 0.5), state === 'away');
-      // where it will be in the window by the time it gets there, given how fast the page is moving, and
-      // (hopping up) that the top of the arc stays out from under the bar
-      const y = windowY(i) - scrollSpeed() * p.T;
-      if (!comfy(y) || (dir < 0 && view.treeTop + p.top - view.scrollY < BAR - 16)) continue;
-      const d = Math.abs(y - want);
-      if (d < bestD) { best = i; bestD = d; }
-    }
-    if (best < 0 && any && dir < 0) for (let i = perch - 1; i >= 0 && best < 0; i--) if (live(i)) best = i;
-    return best;
+    return pickSpotIn(
+      {
+        count: world!.cards.length,
+        perch,
+        unit: u,
+        height: innerHeight,
+        treeTop: view.treeTop,
+        scrollY: view.scrollY,
+        live,
+        windowY,
+        plan: (i) => planArc(i, aimX(i, 0.5), state === 'away'),
+        speed: scrollSpeed,
+      },
+      dir,
+      any,
+    );
   }
   const near = () => half() * 0.9 + 6; // close enough to the cursor to sit and look at it
 
@@ -459,22 +450,8 @@ export function createPup(host: HTMLElement) {
   // From a long way out of the window (a fast flick, or when it is away) it starts from just outside the
   // window instead, which looks like dropping in from above (or leaping up from below).
   function planArc(j: number, x1: number, outside: boolean) {
-    const g = GRAVITY * LEAP_G * u;
-    const winTop = view.scrollY - view.treeTop; // tree y of the top of the window
-    const winBottom = winTop + innerHeight;
-    let x0 = x;
-    let y0 = feet;
-    if (outside || y0 < winTop - H * u - 40) {
-      y0 = winTop - H * u - 24;
-      x0 = clamp(x1 + rand(-70, 70), half() + 2, Math.max(half() + 2, view.width - half() - 2));
-    } else if (y0 - H * u > winBottom + 40) {
-      y0 = winBottom + H * u + 24;
-    }
-    const y1 = floorOf(j);
-    const top = Math.min(y0, y1) - (LEAP_RISE * u + Math.min(0.06 * Math.abs(x1 - x0), LEAP_ARC * u));
-    const vy0 = -Math.sqrt(2 * g * (y0 - top));
-    const T = -vy0 / g + Math.sqrt((2 * (y1 - top)) / g);
-    return { x0, y0, x1, y1, vy0, T, top };
+    const frame = { unit: u, scrollY: view.scrollY, treeTop: view.treeTop, width: view.width, height: innerHeight };
+    return planArcIn(frame, x, feet, floorOf(j), x1, outside, rand);
   }
 
   // Hop to platform j.
@@ -497,12 +474,11 @@ export function createPup(host: HTMLElement) {
   }
 
   function stepLeap() {
-    const g = GRAVITY * LEAP_G * u;
-    const k = Math.min(t, arc.T);
     // the closed form rather than integrating, so it comes down exactly where it was aimed
-    feet = arc.y0 + arc.vy0 * k + 0.5 * g * k * k;
-    x = arc.x0 + (arc.x1 - arc.x0) * (k / arc.T);
-    vy = arc.vy0 + g * k;
+    const at = arcAt(arc, t, u);
+    feet = at.feet;
+    x = at.x;
+    vy = at.vy;
     // a gallop's stretch going up; coming down it skydives, legs out to the sides and ears blown up, which
     // flutter between two frames
     setPose(vy < 0 ? 'run0' : Math.floor(t / DIVE_FLAP) % 2 ? 'diveB' : 'diveA');
