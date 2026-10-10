@@ -45,6 +45,7 @@ let entries: Row[] = [];
 let treeTop = 0;
 let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
 let slid = ''; // last transform written to the SVG
+let heroEl: SVGPathElement | undefined; // the hero line's path, kept across rebuilds
 let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
 // cyril: where the word "Cyril" sits inside the name at full size (x, width); stem: the right-hand edge of its
 // last letter (a line: x at y, and how far x moves per px of y, since the letters lean) and the height the
@@ -391,19 +392,28 @@ function render() {
   svg!.setAttribute('width', String(w + back));
   svg!.setAttribute('height', String(hgt));
   svg!.setAttribute('viewBox', `${-back} 0 ${w + back} ${hgt}`);
-  svg!.replaceChildren();
+  // Everything is drawn again, except the hero line: its element is kept, so a rebuild in the middle of it
+  // drawing itself in (fonts arriving, a resize, during the shell intro) neither restarts nor cuts it short.
+  for (const c of [...svg!.children]) if (c !== heroEl) c.remove();
 
-  const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>) => {
+  const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>, before?: Node | null) => {
     const el = document.createElementNS(SVG_NS, tag);
     for (const k in attrs) el.setAttribute(k, attrs[k]);
-    svg!.append(el);
+    svg!.insertBefore(el, before ?? null);
     return el;
   };
 
-  for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' });
+  // (the ghosts go under the hero line, where they always were)
+  for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' }, heroEl);
   for (const s of segs) {
     s.last = undefined;
-    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
+    if (s.hero && heroEl) {
+      heroEl.setAttribute('d', s.d);
+      s.el = heroEl;
+    } else {
+      s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
+      if (s.hero) heroEl = s.el;
+    }
   }
   for (const d of dots) {
     const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;

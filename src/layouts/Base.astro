@@ -47,14 +47,16 @@ const jsonLd = {
       document.documentElement.classList.add('js');
       // Shell-style start (src/scripts/intro.ts): decide before first paint whether the page plays its intro
       // (the class `sh` hides the parts that print after the typed command). Same rules as shouldRun() there:
-      // not with reduced motion, ?intro=0, a #hash, a restored scroll position, or a second visit in this
-      // session; ?intro=1 forces it. The watchdog drops the class if the script never takes over.
+      // not with reduced motion, ?intro=0, a #hash, a reload or back/forward navigation, or a second visit in
+      // this tab's session; ?intro=1 forces it. The watchdog drops the class if the script never takes over.
       try {
         var h = document.documentElement, s = location.search;
         if (!/[?&]intro=0\b/.test(s) && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
           var seen = false;
           try { seen = sessionStorage.getItem('intro-seen') === '1'; } catch (e) {}
-          if (/[?&]intro=1\b/.test(s) || (!seen && !location.hash && !(window.scrollY > 4))) {
+          var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+          var restored = nav && (nav.type === 'reload' || nav.type === 'back_forward'); // scroll gets restored
+          if (/[?&]intro=1\b/.test(s) || (!seen && !restored && !location.hash && !(window.scrollY > 4))) {
             h.classList.add('sh');
             window.__shWatch = setTimeout(function () { h.classList.remove('sh'); }, 5000);
           }

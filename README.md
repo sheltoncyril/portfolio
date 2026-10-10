@@ -33,12 +33,12 @@ To add behaviour, add a state next to the existing ones and have `step()` react 
 
 ## The intro
 
-On a first visit in a browser session the page starts like a terminal: a prompt and a blinking cursor, then `git log --graph` is typed, Enter is pressed and the page prints (top bar, name, the hero line drawing itself, role and intro), after which the dog starts to peek. About 2.4 s in all; any key, tap or scroll jumps to the finished page.
+On a first visit in a tab's session the page starts like a terminal: a prompt and a blinking cursor, then `git log --graph` is typed, Enter is pressed and the page prints (top bar, name, the hero line drawing itself, role and intro), after which the dog starts to peek. About 2.5 s in all (it waits a moment for the fonts, and for the tab to be in front); any key, tap or scroll jumps to the finished page.
 
 - `src/scripts/intro.ts` is the behaviour. The timing (`introPlan`, `typingDelays`) and the decision (`shouldRun`) are plain functions; `runIntro` is the thin DOM layer. `graph.ts` calls it and holds the dog until it is over (`pup.hold`).
 - It is progressive enhancement: the HTML is always the finished page. An inline script in `Base.astro` decides before first paint whether to play, and only then puts the class `sh` on `<html>`; the CSS that hides things (`html.sh ...` in `global.css`) lives under that class, which the script removes at the end (or a 5 s watchdog does, if the script never arrives). The typed command is `aria-hidden` and the same text is in a visually hidden span, so screen readers read it once.
-- It does not play with `prefers-reduced-motion`, on a deep link (`#log`, `#contact`), when the page is restored part-way down, or on a second visit in the same session (`sessionStorage` key `intro-seen`). `?intro=0` turns it off and `?intro=1` forces it (except with reduced motion), for testing.
-- Nothing moves while it plays: the parts that print are only transparent until their turn (never `display: none`), so the name is measured and docked exactly as usual.
+- It does not play with `prefers-reduced-motion`, on a deep link (`#log`, `#contact`), on a reload or back/forward navigation, when the page is restored part-way down, or on a second visit in the same tab's session (`sessionStorage`, key `intro-seen`; it is per tab, so a new tab plays it again). `?intro=0` turns it off and `?intro=1` forces it (except with reduced motion), for testing.
+- Nothing changes size or position in the layout while it plays: the parts that print are only transparent (and the role and intro a few px low) until their turn, never `display: none`, so the name is measured and docked exactly as usual. The hero line's path element is kept across the tree's rebuilds, so its drawing-in is not cut short when fonts arrive.
 
 ## Develop
 
