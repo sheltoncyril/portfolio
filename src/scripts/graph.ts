@@ -3,6 +3,7 @@
 // SVG is decoration (aria-hidden), so everything works if this script doesn't.
 
 import { createPup } from './pup';
+import { runIntro } from './intro';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const R = 28; // corner radius where the hero line turns down
@@ -57,6 +58,15 @@ function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
   root.classList.add('graph-ready');
   pup = createPup(tree);
+  // On a first visit the page plays a typed-command intro (intro.ts); the dog waits for it to finish.
+  const intro = runIntro();
+  if (intro) {
+    pup.hold(true);
+    intro.then(() => {
+      pup?.hold(false);
+      schedule(false); // a paint, so it starts now rather than at the next scroll
+    });
+  }
 
   const q = new URLSearchParams(location.search).get('layout');
   const saved = safe(() => localStorage.getItem('layout'));

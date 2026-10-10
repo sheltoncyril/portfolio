@@ -28,7 +28,12 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
     <svg class="tree-svg" aria-hidden="true" focusable="false"></svg>
 
     <section class="hero" id="top">
-      <p class="eyebrow">~/sheltoncyril <span class="prompt">$</span> git log --graph</p>
+      {/* the command is typed by src/scripts/intro.ts on a first visit; the visible copy is decoration, the
+           screen-reader copy is read once */}
+      <p class="eyebrow">
+        <span class="sr-only">~/sheltoncyril $ git log --graph</span>
+        <span aria-hidden="true">~/sheltoncyril <span class="prompt">$</span> <span class="cmd"><span data-typed></span><span class="cursor"></span><span data-rest>git log --graph</span></span></span>
+      </p>
       <h1 class="name" data-name><a href="#top"><span>Shelton</span> <span>Cyril</span></a></h1>
       <div class="name-slot" data-name-slot aria-hidden="true"></div>
       <div class="trace" data-trace></div>

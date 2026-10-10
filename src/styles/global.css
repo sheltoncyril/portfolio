@@ -149,6 +149,30 @@ a:hover { text-decoration-color: currentColor; }
 }
 .eyebrow { font: 500 0.8rem var(--font-mono); color: var(--muted); margin: 0 0 1.5rem; }
 .prompt { color: var(--hw); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+/* Shell-style start (src/scripts/intro.ts). Everything here is under `html.sh`, a class the head script adds
+   before first paint only when the intro will play and the script removes at the end, so without JS, with
+   reduced motion, or on a second visit the page is simply the finished one. Nothing is `display:none` (the
+   layout never moves, and the name is measured as it will be), only transparent until its turn. */
+.cursor { display: none; }
+html.sh .cursor { display: inline-block; position: relative; width: 0; height: 1em; vertical-align: text-bottom; }
+html.sh .cursor::after {
+  content: ''; position: absolute; left: 0; top: -0.1em; width: 0.6em; height: 1.2em; background: var(--text);
+  animation: sh-blink 1.05s steps(1) infinite;
+}
+html.sh.sh-typing .cursor::after { animation: none; } /* solid while keys are going in */
+html.sh.sh-enter .cursor { display: none; } /* after Enter the cursor moves on to the output */
+@keyframes sh-blink { 50% { opacity: 0; } }
+html.sh [data-rest] { visibility: hidden; } /* the rest of the command still takes its room */
+html.sh .bar, html.sh .name { opacity: 0; transition: opacity 0.35s ease; }
+html.sh .role, html.sh .intro { opacity: 0; transform: translateY(6px); transition: opacity 0.3s ease, transform 0.3s ease; }
+html.sh .seg.hero { stroke-dashoffset: 1; transition: stroke-dashoffset 0.7s cubic-bezier(0.3, 0.6, 0.2, 1); }
+html.sh.sh-bar .bar, html.sh.sh-name .name { opacity: 1; }
+html.sh.sh-role .role, html.sh.sh-intro .intro { opacity: 1; transform: none; }
+html.sh.sh-line .seg.hero { stroke-dashoffset: 0; }
 /* The name never wraps, so its size is also capped at what fits between the page's padding (about 4.5em wide
    with its italic): a larger system font size, page zoom or a fallback face can't push it off the screen.
    The right padding is for the italic's overhang: the name is a composited layer once the script runs, and some
