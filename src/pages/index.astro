@@ -1,8 +1,9 @@
 ---
-import { Image } from 'astro:assets';
+import Entry from '../components/Entry.astro';
 import Base from '../layouts/Base.astro';
 import { site } from '../data/site';
 import { visibleProjects } from '../data/projects';
+import { upstream, visibleUpstream } from '../data/upstream';
 
 const fmt = new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 const when = (d: string) => fmt.format(new Date(d));
@@ -12,7 +13,6 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
 <Base>
   <a class="skip" href="#log">Skip to projects</a>
   <header class="bar">
-    <a class="bar-id" href="#top">~/sheltoncyril</a>
     <nav aria-label="Primary">
       <a href="#log">projects</a>
       <a href="#contact">contact</a>
@@ -24,12 +24,13 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
     </nav>
   </header>
 
-  <div class="tree" data-tree data-layout="lanes">
+  <div class="tree" data-tree data-layout="branches">
     <svg class="tree-svg" aria-hidden="true" focusable="false"></svg>
 
     <section class="hero" id="top">
       <p class="eyebrow">~/sheltoncyril <span class="prompt">$</span> git log --graph</p>
-      <h1 class="name"><span>Shelton</span> <span>Cyril</span></h1>
+      <h1 class="name" data-name><a href="#top"><span>Shelton</span> <span>Cyril</span></a></h1>
+      <div class="name-slot" data-name-slot aria-hidden="true"></div>
       <p class="role">{site.role}</p>
       <p class="intro">{site.intro}</p>
       <div class="trace" data-trace></div>
@@ -39,12 +40,13 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
       <div class="fork-labels" aria-hidden="true">
         <span class="lane-pill hw"><i></i>hardware</span>
         <span class="lane-pill sw"><i></i>software</span>
+        {visibleUpstream.length > 0 && <span class="lane-pill rh"><i></i>upstream</span>}
       </div>
       <div class="fork-tools">
         <span class="mono muted">layout</span>
         <div class="toggle" role="group" aria-label="Graph layout">
-          <button type="button" data-set-layout="lanes" aria-pressed="true">lanes</button>
-          <button type="button" data-set-layout="spurs" aria-pressed="false">spurs</button>
+          <button type="button" data-set-layout="branches" aria-pressed="true">branches</button>
+          <button type="button" data-set-layout="lanes" aria-pressed="false">lanes</button>
         </div>
       </div>
     </section>
@@ -52,38 +54,57 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
     <ol class="log" id="log" aria-label="Projects, newest first">
       {
         visibleProjects.map((p) => (
-          <li class={`entry ${p.lane === 'hardware' ? 'hw' : 'sw'}`} data-lane={p.lane === 'hardware' ? 'hw' : 'sw'}>
-            <span class="anchor" aria-hidden="true" />
-            <article class="card">
-              <header class="card-head">
-                <span class="lane-tag">{p.lane}</span>
-                {p.status && <span class="status">{p.status}</span>}
-              </header>
-              <h2>{p.title}</h2>
-              <p>{p.summary}</p>
-              {p.image && (
-                <figure class="shot">
-                  <Image src={p.image} alt={p.imageAlt ?? ''} widths={[480, 800, 1100]} sizes="(min-width: 860px) 440px, 90vw" loading="lazy" />
-                </figure>
-              )}
-              <ul class="tags" aria-label="Tech">
-                {p.tags.map((t) => <li>{t}</li>)}
-              </ul>
-              {(p.repo || p.live) && (
-                <p class="links">
-                  {p.repo && <a href={repoUrl(p.repo)}>source ↗</a>}
-                  {p.live && <a href={p.live}>live ↗</a>}
-                </p>
-              )}
-            </article>
-            <div class="meta" aria-hidden="true">
-              <time datetime={p.date}>{when(p.date)}</time>
-              <span>{p.lane === 'hardware' ? 'hw/' : 'sw/'}{p.id}</span>
-            </div>
-          </li>
+          <Entry
+            kind={p.lane === 'hardware' ? 'hw' : 'sw'}
+            label={p.lane}
+            title={p.title}
+            summary={p.summary}
+            tags={p.tags}
+            status={p.status}
+            image={p.image}
+            imageAlt={p.imageAlt}
+            links={[
+              ...(p.repo ? [{ label: 'source', href: repoUrl(p.repo) }] : []),
+              ...(p.live ? [{ label: 'live', href: p.live }] : []),
+            ]}
+            metaDate={when(p.date)}
+            metaDateTime={p.date}
+            metaRef={`${p.lane === 'hardware' ? 'hw' : 'sw'}/${p.id}`}
+          />
         ))
       }
     </ol>
+
+    {
+      visibleUpstream.length > 0 && (
+        <>
+          <section class="upstream-head" data-upstream-head>
+            <div class="upstream-copy">
+              <p class="mono rh-text">git checkout -b upstream/redhat software</p>
+              <h2>{upstream.title}</h2>
+              <p>{upstream.blurb}</p>
+            </div>
+          </section>
+          <ol class="log upstream-log" aria-label="Open-source work at Red Hat">
+            {visibleUpstream.map((u) => (
+              <Entry
+                kind="rh"
+                label="upstream"
+                title={u.title}
+                summary={u.summary}
+                tags={u.tags}
+                links={[
+                  { label: 'my commits', href: `https://github.com/${u.repo}/commits?author=${site.githubUser}` },
+                  { label: 'project', href: `https://github.com/${u.repo}` },
+                ]}
+                metaDate={u.span}
+                metaRef={u.repo}
+              />
+            ))}
+          </ol>
+        </>
+      )
+    }
 
     <section class="merge" aria-hidden="true">
       <span class="mono muted">git merge hardware software</span>

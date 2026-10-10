@@ -1,0 +1,55 @@
+---
+import { Image } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+export interface Props {
+  /** hw = hardware, sw = software, rh = upstream open-source work */
+  kind: 'hw' | 'sw' | 'rh';
+  label: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  status?: string;
+  image?: ImageMetadata;
+  imageAlt?: string;
+  links?: { label: string; href: string }[];
+  /** shown beside the branch, in mono */
+  metaDate: string;
+  metaDateTime?: string;
+  metaRef: string;
+}
+const p = Astro.props;
+---
+
+<li class={`entry ${p.kind}`} data-lane={p.kind}>
+  <span class="anchor" aria-hidden="true"></span>
+  <article class="card">
+    <header class="card-head">
+      <span class="lane-tag">{p.label}</span>
+      {p.status && <span class="status">{p.status}</span>}
+    </header>
+    <h2>{p.title}</h2>
+    <p>{p.summary}</p>
+    {
+      p.image && (
+        <figure class="shot">
+          <Image src={p.image} alt={p.imageAlt ?? ''} widths={[480, 800, 1100]} sizes="(min-width: 860px) 440px, 90vw" loading="lazy" />
+        </figure>
+      )
+    }
+    <ul class="tags" aria-label="Tech">
+      {p.tags.map((t) => <li>{t}</li>)}
+    </ul>
+    {
+      p.links?.length ? (
+        <p class="links">
+          {p.links.map((l) => <a href={l.href}>{l.label} ↗</a>)}
+        </p>
+      ) : null
+    }
+  </article>
+  <div class="meta" aria-hidden="true">
+    <time datetime={p.metaDateTime}>{p.metaDate}</time>
+    <span>{p.metaRef}</span>
+  </div>
+</li>

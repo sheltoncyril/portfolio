@@ -5,13 +5,17 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const R = 28; // corner radius where the hero line turns down
 const F = 70; // vertical run of a fork / merge curve
-const SPUR = 30; // half-height of a spur in the "spurs" layout
+const K = 34; // vertical run of the fork / merge curves of a project branch
+const DOCK_FONT = 24; // px: size of the name once docked in the top-left corner
+const BAR_H = 56; // px: height of the fixed top bar
 const MARKER = 0.62; // fraction of viewport height where the line "is drawn up to"
 
-type Kind = 'trunk' | 'hw' | 'sw';
+type Kind = 'trunk' | 'hw' | 'sw' | 'rh';
+type Lane = 'hw' | 'sw' | 'rh';
 interface Seg { d: string; y0: number; y1: number; kind: Kind; hero?: boolean; el?: SVGPathElement; last?: number }
-interface Dot { x: number; y: number; kind: Kind | 'head'; el?: SVGElement; on?: boolean }
-interface Row { el: HTMLElement; y: number; on?: boolean }
+interface Dot { x: number; y: number; kind: Kind | 'head' | 'tick'; el?: SVGElement; on?: boolean }
+interface Row { el: HTMLElement; y: number; top: number; bottom: number; on?: boolean }
+type Layout = 'branches' | 'lanes';
 
 const root = document.documentElement;
 const tree = document.querySelector<HTMLElement>('[data-tree]');
@@ -19,8 +23,12 @@ const svg = tree?.querySelector<SVGSVGElement>('.tree-svg');
 const trace = tree?.querySelector<HTMLElement>('[data-trace]');
 const fork = tree?.querySelector<HTMLElement>('.fork');
 const merge = tree?.querySelector<HTMLElement>('.merge');
+const upHead = tree?.querySelector<HTMLElement>('[data-upstream-head]');
 const headAnchor = tree?.querySelector<HTMLElement>('.head-anchor');
 const rows = tree ? [...tree.querySelectorAll<HTMLElement>('.entry')] : [];
+const nameEl = document.querySelector<HTMLElement>('[data-name]');
+const slot = document.querySelector<HTMLElement>('[data-name-slot]');
+const eyebrow = document.querySelector<HTMLElement>('.eyebrow');
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 const wide = matchMedia('(min-width: 860px)');
@@ -31,6 +39,7 @@ let dots: Dot[] = [];
 let entries: Row[] = [];
 let treeTop = 0;
 let first = true;
+const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
 
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
@@ -38,10 +47,11 @@ function init() {
 
   const q = new URLSearchParams(location.search).get('layout');
   const saved = safe(() => localStorage.getItem('layout'));
-  setLayout(q === 'spurs' || q === 'lanes' ? q : saved === 'spurs' ? 'spurs' : 'lanes', false);
+  const pick = [q, saved].find((v) => v === 'branches' || v === 'lanes') as Layout | undefined;
+  setLayout(pick ?? 'branches', false);
 
   document.querySelectorAll<HTMLButtonElement>('[data-set-layout]').forEach((b) =>
-    b.addEventListener('click', () => setLayout(b.dataset.setLayout === 'spurs' ? 'spurs' : 'lanes', true)),
+    b.addEventListener('click', () => setLayout(b.dataset.setLayout === 'lanes' ? 'lanes' : 'branches', true)),
   );
   document.querySelector('[data-theme-toggle]')?.addEventListener('click', toggleTheme);
 
@@ -49,11 +59,12 @@ function init() {
   addEventListener('scroll', () => schedule(false), { passive: true });
   reduce.addEventListener('change', () => schedule(true));
   wide.addEventListener('change', () => schedule(true));
+  document.fonts?.ready.then(() => schedule(true));
   build();
   paint();
 }
 
-function setLayout(l: 'lanes' | 'spurs', persist: boolean) {
+function setLayout(l: Layout, persist: boolean) {
   tree!.dataset.layout = l;
   document.querySelectorAll<HTMLButtonElement>('[data-set-layout]').forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.setLayout === l)),
@@ -90,10 +101,26 @@ const rel = (el: Element) => {
   return { x: r.left - t.left, y: r.top - t.top, w: r.width, h: r.height };
 };
 
+function measureName() {
+  if (!nameEl || !slot) return;
+  nameEl.style.transform = 'none';
+  const r = nameEl.getBoundingClientRect();
+  slot.style.height = `${r.height}px`;
+  const sr = slot.getBoundingClientRect();
+  const fs = parseFloat(getComputedStyle(nameEl).fontSize);
+  nm.x = sr.left;
+  nm.top = sr.top + scrollY;
+  nm.scale = Math.min(1, DOCK_FONT / fs);
+  nm.tx = parseFloat(getComputedStyle(document.querySelector('.bar')!).paddingLeft) || 20;
+  nm.ty = (BAR_H - r.height * nm.scale) / 2;
+  nm.dist = Math.min(innerHeight * 0.55, 460);
+}
+
 function build() {
+  measureName();
   const t = tree!.getBoundingClientRect();
   treeTop = t.top + scrollY;
-  const spurs = tree!.dataset.layout === 'spurs';
+  const branches = tree!.dataset.layout !== 'lanes';
   const isWide = wide.matches;
 
   const tr = rel(trace!);
@@ -101,16 +128,21 @@ function build() {
   const x0 = tr.x;
   const a = rel(rows[0].querySelector('.anchor')!);
 
-  let tx: number, hx: number, sx: number;
+  // x of the trunk and of each lane / branch, per layout and breakpoint
+  let tx: number, hx: number, sx: number, rx: number;
   if (isWide) {
     tx = a.x + a.w / 2;
-    [hx, sx] = spurs ? [tx - 56, tx + 56] : [tx - 22, tx + 22];
-  } else if (spurs) {
-    tx = a.x + 12; hx = a.x + 32; sx = a.x + 50;
+    const w = branches ? 100 : 56;
+    hx = tx - w;
+    sx = tx + w;
+    rx = branches ? sx : tx + 112;
+  } else if (branches) {
+    tx = a.x + 12; hx = sx = rx = a.x + 46;
   } else {
-    tx = a.x + 32; hx = a.x + 12; sx = a.x + 52;
+    tx = a.x + 26; hx = a.x + 10; sx = a.x + 42; rx = a.x + 58;
   }
-  const laneX = { hw: hx, sw: sx };
+  const laneX: Record<Lane, number> = { hw: hx, sw: sx, rh: rx };
+  const r = Math.max(8, Math.min(R, tx - x0 - 2)); // corner radius shrinks when the trunk is close to the name
 
   const f = rel(fork!);
   const m = rel(merge!);
@@ -119,16 +151,29 @@ function build() {
 
   segs = [];
   dots = [];
-  entries = rows.map((el) => ({ el, y: rel(el.querySelector('.anchor')!).y }));
+  entries = rows.map((el) => {
+    const c = rel(el.querySelector('.card')!);
+    return { el, y: rel(el.querySelector('.anchor')!).y, top: c.y, bottom: c.y + c.h };
+  });
 
-  segs.push({ d: `M${x0},${y0} H${tx - R}`, y0, y1: y0, kind: 'trunk', hero: true });
+  segs.push({ d: `M${x0},${y0} H${tx - r}`, y0, y1: y0, kind: 'trunk', hero: true });
+  const lane = (e: Row) => (e.el.dataset.lane === 'hw' ? 'hw' : e.el.dataset.lane === 'rh' ? 'rh' : 'sw') as Lane;
+  const own = entries.filter((e) => lane(e) !== 'rh');
+  const up = entries.filter((e) => lane(e) === 'rh');
+  // the red upstream branch spans from its section heading to the bottom of its last card
+  const upTop = up.length && upHead ? rel(upHead).y + 4 : 0;
+  const upBottom = up.length ? Math.max(...up.map((e) => e.bottom)) : 0;
+  const bump = (x0: number, x1: number, top: number, bottom: number, k: Kind) => ({
+    d: `M${x0},${top} C${x0},${top + K * 0.6} ${x1},${top + K * 0.4} ${x1},${top + K} V${bottom - K} C${x1},${bottom - K * 0.4} ${x0},${bottom - K * 0.6} ${x0},${bottom}`,
+    y0: top, y1: bottom, kind: k,
+  });
 
-  if (!spurs) {
+  if (!branches) {
     const forkY = f.y + 10;
     const laneTop = forkY + F;
     const laneEnd = m.y + 10;
     const mergeEnd = laneEnd + F;
-    segs.push({ d: `M${tx - R},${y0} Q${tx},${y0} ${tx},${y0 + R} V${forkY}`, y0, y1: forkY, kind: 'trunk' });
+    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${forkY}`, y0, y1: forkY, kind: 'trunk' });
     for (const k of ['hw', 'sw'] as const) {
       const x = laneX[k];
       segs.push({ d: `M${tx},${forkY} C${tx},${forkY + F * 0.55} ${x},${forkY + F * 0.45} ${x},${laneTop}`, y0: forkY, y1: laneTop, kind: k });
@@ -137,20 +182,27 @@ function build() {
     }
     segs.push({ d: `M${tx},${mergeEnd} V${headY}`, y0: mergeEnd, y1: headY, kind: 'trunk' });
     dots.push({ x: tx, y: forkY, kind: 'trunk' }, { x: tx, y: mergeEnd, kind: 'trunk' });
-  } else {
-    segs.push({ d: `M${tx - R},${y0} Q${tx},${y0} ${tx},${y0 + R} V${headY}`, y0, y1: headY, kind: 'trunk' });
-    for (const e of entries) {
-      const k = e.el.dataset.lane === 'hw' ? 'hw' : 'sw';
-      const nx = laneX[k];
-      segs.push({
-        d: `M${tx},${e.y - SPUR} Q${tx},${e.y} ${nx},${e.y} Q${tx},${e.y} ${tx},${e.y + SPUR}`,
-        y0: e.y - SPUR, y1: e.y + SPUR, kind: k,
-      });
+    for (const e of own) dots.push({ x: laneX[lane(e)], y: e.y, kind: lane(e) });
+    if (up.length) {
+      // upstream forks off the software lane, not off main
+      segs.push(bump(sx, rx, upTop, upBottom, 'rh'));
+      dots.push({ x: sx, y: upTop, kind: 'tick' }, { x: sx, y: upBottom, kind: 'tick' });
+      for (const e of up) dots.push({ x: rx, y: e.y, kind: 'rh' });
     }
-  }
-  for (const e of entries) {
-    const k = e.el.dataset.lane === 'hw' ? 'hw' : 'sw';
-    dots.push({ x: laneX[k], y: e.y, kind: k });
+  } else {
+    // main runs straight down; every project forks off it, runs beside its card, and merges back
+    segs.push({ d: `M${tx - r},${y0} Q${tx},${y0} ${tx},${y0 + r} V${headY}`, y0, y1: headY, kind: 'trunk' });
+    for (const e of own) {
+      const k = lane(e);
+      const x = laneX[k];
+      segs.push(bump(tx, x, e.top, e.bottom, k));
+      dots.push({ x: tx, y: e.top, kind: 'tick' }, { x: tx, y: e.bottom, kind: 'tick' }, { x, y: e.y, kind: k });
+    }
+    if (up.length) {
+      segs.push(bump(tx, rx, upTop, upBottom, 'rh'));
+      dots.push({ x: tx, y: upTop, kind: 'tick' }, { x: tx, y: upBottom, kind: 'tick' });
+      for (const e of up) dots.push({ x: rx, y: e.y, kind: 'rh' });
+    }
   }
   dots.push({ x: tx, y: headY, kind: 'head' });
 
@@ -179,12 +231,14 @@ function render(intro: boolean) {
     s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' + (intro ? ' intro' : '') : ''}` });
   }
   for (const d of dots) {
-    const r = d.kind === 'head' ? 8 : 6;
+    const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;
     d.on = undefined;
-    if (d.kind === 'hw') {
+    if (d.kind === 'rh') {
+      d.el = mk('rect', { x: String(d.x - 5), y: String(d.y - 5), width: '10', height: '10', rx: '2', class: 'node rh' });
+    } else if (d.kind === 'hw') {
       d.el = mk('rect', { x: String(d.x - r + 0.5), y: String(d.y - r + 0.5), width: String(2 * r - 1), height: String(2 * r - 1), rx: '3', class: 'node hw' });
     } else {
-      d.el = mk('circle', { cx: String(d.x), cy: String(d.y), r: String(d.kind === 'head' ? r : r - 0.5), class: `node ${d.kind}` });
+      d.el = mk('circle', { cx: String(d.x), cy: String(d.y), r: String(d.kind === 'head' || d.kind === 'tick' ? r : r - 0.5), class: `node ${d.kind}` });
     }
   }
   for (const e of entries) e.on = undefined;
@@ -207,10 +261,25 @@ function paint() {
     const on = still || marker >= d.y - 2;
     if (on !== d.on && d.el) { d.on = on; d.el.classList.toggle('on', on); }
   }
+  paintName();
   for (const e of entries) {
     const on = still || marker >= e.y - 110;
     if (on !== e.on) { e.on = on; e.el.classList.toggle('in', on); }
   }
+}
+
+// The name starts big in the hero and shrinks into the top-left corner over the first stretch of scroll.
+function paintName() {
+  if (!nameEl) return;
+  const t = clamp(scrollY / nm.dist);
+  const e = reduce.matches ? (scrollY > 40 ? 1 : 0) : 1 - (1 - t) ** 3;
+  const live = nm.top - scrollY;
+  const x = nm.x + (nm.tx - nm.x) * e;
+  const y = live + (nm.ty - live) * e;
+  const sc = 1 + (nm.scale - 1) * e;
+  nameEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
+  nameEl.classList.toggle('docked', e > 0.98);
+  if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 2.2));
 }
 
 init();
