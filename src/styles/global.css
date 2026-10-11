@@ -84,6 +84,11 @@ a:hover { text-decoration-color: currentColor; }
 .bar a:hover { color: var(--text); }
 .theme { background: none; border: 1px solid var(--border); color: var(--muted); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 0.9rem; line-height: 1; }
 .theme:hover { color: var(--text); border-color: var(--muted); }
+/* the pet switch: the current pet's face in the same round button, a little quieter */
+.pet { display: inline-flex; align-items: center; justify-content: center; padding: 0; opacity: 0.7; }
+.pet[hidden] { display: none; }
+.pet:hover, .pet:focus-visible { opacity: 1; }
+.pet svg { display: block; }
 @media (max-width: 520px) { .bar nav a:nth-child(1), .bar nav a:nth-child(3), .bar nav a:nth-child(4) { display: none; } .bar nav { gap: 16px; } }
 
 /* tree + svg */

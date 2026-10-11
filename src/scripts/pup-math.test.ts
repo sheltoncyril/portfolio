@@ -363,3 +363,100 @@ describe('planArc and pickSpot together, on a page like the real one', () => {
     expect(pickSpot(page(400), 1)).toBe(3);
   });
 });
+
+// ---- flying ---------------------------------------------------------------------------------------------
+// The bird does not hop: it flies (ArcFrame.fly). A flight has no gravity in it; it is eased from one end to
+// the other with a lift in the middle, and has to keep every promise a hop makes (lands on its target at T,
+// never above its `top`, so that the bar-avoidance in pup.ts holds), plus take longer the further it goes.
+
+describe('planArc with fly: a flight lands exactly on its target, at time T', () => {
+  const hops: [string, number, number, number, number, number][] = [
+    ['down to the next card', 3, 300, 1100, 700, 1300],
+    ['up to the card above', 3, 700, 1500, 400, 1250],
+    ['straight across', 3, 200, 1300, 900, 1300],
+    ['straight up, a long way', 3, 600, 1650, 600, 950],
+    ['a phone-sized bird', 2, 100, 1000, 250, 1150],
+    ['one pixel across', 3, 500, 1200, 501, 1200],
+  ];
+
+  it.each(hops)('%s', (_, unit, x, feet, x1, y1) => {
+    const fr = frame({ unit, fly: true });
+    const arc = planArc(fr, x, feet, y1, x1, false, middle);
+    expect(arc.h).toBeDefined();
+    expect(arc.T).toBeGreaterThan(0);
+    const start = arcAt(arc, 0, unit);
+    expect(start.x).toBeCloseTo(x, 6);
+    expect(start.feet).toBeCloseTo(feet, 6);
+    const end = arcAt(arc, arc.T, unit);
+    expect(end.x).toBeCloseTo(x1, 6);
+    expect(end.feet).toBeCloseTo(y1, 6);
+    expect(arcAt(arc, arc.T + 3, unit)).toEqual(end); // and it stays there
+  });
+
+  it.each(hops)('%s: never gets above `top`, which is above both ends by at least LEAP_RISE', (_, unit, x, feet, x1, y1) => {
+    const arc = planArc(frame({ unit, fly: true }), x, feet, y1, x1, false, middle);
+    const heights = Array.from({ length: 401 }, (_, i) => arcAt(arc, (arc.T * i) / 400, unit).feet);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(arc.top - 1e-6);
+    expect(Math.min(arc.y0, arc.y1) - arc.top).toBeGreaterThanOrEqual(LEAP_RISE * unit - 1e-9);
+  });
+
+  it('goes steadily on across: x never goes back', () => {
+    const arc = planArc(frame({ fly: true }), 300, 1100, 1300, 700, false, middle);
+    const xs = Array.from({ length: 101 }, (_, i) => arcAt(arc, (arc.T * i) / 100, 3).x);
+    for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThanOrEqual(xs[i - 1] - 1e-9);
+  });
+
+  it('leaves and arrives gently: slow at both ends, quickest in the middle', () => {
+    const arc = planArc(frame({ fly: true }), 300, 1300, 1300, 900, false, middle);
+    const speed = (k: number) => {
+      const d = 1e-3;
+      return Math.abs(arcAt(arc, arc.T * (k + d), 3).x - arcAt(arc, arc.T * k, 3).x) / d;
+    };
+    expect(speed(0)).toBeLessThan(speed(0.5) * 0.05);
+    expect(speed(0.99)).toBeLessThan(speed(0.5) * 0.2);
+  });
+
+  it('takes longer the further it has to go, and a moment however short the trip', () => {
+    const f = frame({ fly: true });
+    const T = (x1: number) => planArc(f, 300, 1300, 1300, x1, false, middle).T;
+    expect(T(301)).toBeGreaterThan(0.3);
+    expect(T(600)).toBeGreaterThan(T(400));
+    expect(T(1200)).toBeGreaterThan(T(600));
+  });
+
+  it('is a different thing to a hop to the same place (no gravity in it)', () => {
+    const hop = planArc(frame(), 300, 1100, 1300, 700, false, middle);
+    const fly = planArc(frame({ fly: true }), 300, 1100, 1300, 700, false, middle);
+    expect(hop.h).toBeUndefined();
+    expect(fly.vy0).toBe(0);
+    expect(fly.top).toBeCloseTo(hop.top, 6); // the same ceiling
+  });
+});
+
+describe('a sprite of another size', () => {
+  it('comfy wants room for all of it under the bar', () => {
+    const u = 3;
+    const tall = { w: W, h: H + 7 };
+    expect(comfy(BAR + H * u + 8, u, 800)).toBe(true);
+    expect(comfy(BAR + H * u + 8, u, 800, tall)).toBe(false);
+    expect(comfy(BAR + tall.h * u + 8, u, 800, tall)).toBe(true);
+  });
+
+  it('planArc starts a taller one further above the window when it comes in from outside', () => {
+    const f = frame();
+    const dog = planArc(f, 600, 1300, 1300, 600, true, middle);
+    const bird = planArc({ ...f, sprite: { w: W, h: H + 7 } }, 600, 1300, 1300, 600, true, middle);
+    expect(bird.y0).toBeLessThan(dog.y0);
+    expect(dog.y0 - bird.y0).toBeCloseTo(7 * f.unit, 6);
+  });
+
+  it('pickSpot leaves a taller one more room under the bar', () => {
+    const q = (sprite?: { w: number; h: number }): SpotQuery => ({
+      count: 1, perch: 0, unit: 3, height: 800, treeTop: 0, scrollY: 0,
+      live: () => true, windowY: (i) => (i === 0 ? 300 : BAR + H * 3 + 10), // card 1 has just room for the dog, not the bird
+      plan: () => ({ T: 0.5, top: 0 }), speed: () => 0, sprite,
+    });
+    expect(pickSpot(q(), 1)).toBe(1);
+    expect(pickSpot(q({ w: W, h: H + 7 }), 1)).toBe(-1);
+  });
+});

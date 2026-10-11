@@ -2,7 +2,8 @@
 // draws it as the reader scrolls. The <ol> underneath is the real content; the
 // SVG is decoration (aria-hidden), so everything works if this script doesn't.
 
-import { createPup } from './pup';
+import { createPup, petIcon } from './pup';
+import { choosePet, otherPet, PET_NAMES, type Pet } from './pet';
 import { runIntro } from './intro';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -60,7 +61,8 @@ let pup: ReturnType<typeof createPup> | undefined;
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
   root.classList.add('graph-ready');
-  pup = createPup(tree);
+  pup = createPup(tree, choosePet(location.search, safe(() => localStorage.getItem('pet'))));
+  petSwitch(pup);
   // On a first visit the page plays a typed-command intro (intro.ts); the dog waits for it to finish.
   const intro = runIntro();
   if (intro) {
@@ -95,6 +97,27 @@ function init() {
   addEventListener('load', () => schedule(true));
   build();
   paint();
+}
+
+// The small button in the top bar that swaps the pet on the line between the dog and the secretary bird. It
+// shows the current pet's face; the choice is kept for next time.
+function petSwitch(p: ReturnType<typeof createPup>) {
+  const b = document.querySelector<HTMLButtonElement>('[data-pet-toggle]');
+  if (!b) return;
+  const show = (pet: Pet) => {
+    const next = PET_NAMES[otherPet(pet)];
+    b.innerHTML = petIcon(pet);
+    b.title = `Switch to the ${next}`;
+    b.setAttribute('aria-label', `Switch pet: the ${PET_NAMES[pet]} is out, switch to the ${next}`);
+  };
+  show(p.pet);
+  b.hidden = false;
+  b.addEventListener('click', () => {
+    const next = otherPet(p.pet);
+    p.setPet(next);
+    safe(() => localStorage.setItem('pet', next));
+    show(next);
+  });
 }
 
 function setLayout(l: Layout, persist: boolean) {

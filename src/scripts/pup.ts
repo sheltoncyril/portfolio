@@ -1,4 +1,4 @@
-// An 8-bit pup that lives on the hero line. It starts out hiding behind the last letter of the name with
+// An 8-bit pup (or, if you pick it, a secretary bird: see the notes on the pets below) that lives on the hero line. It starts out hiding behind the last letter of the name with
 // only its face showing, pops out when the page is scrolled, drops onto the line and wanders along it,
 // leaving paw prints that fade as it walks on. It follows the cursor (or the last tap), gets excited when
 // you hover close, naps when nobody is paying attention and barks if you click it. As the page scrolls it
@@ -11,11 +11,52 @@
 // It stands on a "platform": index 0 is the hero line, index i > 0 is the i-th card, in document order, which
 // is top to bottom.
 
-import { COLORS, paths, POSES, WALK, RUN, drawBody, drawFace, type FaceOpts, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } from './pup-art';
+import * as dogArt from './pup-art';
+import * as birdArt from './bird-art';
+import { paths, type FaceOpts, type Grid } from './pup-art';
 import { BAR, GRAVITY, LEAP_ARC, LEAP_RISE, arcAt, clamp, pickSpot as pickSpotIn, planArc as planArcIn } from './pup-math';
+import type { Pet } from './pet';
 
-const HEAD_DX = 5.5; // art pixels from the body sprite's centre to the middle of its head...
-const HEAD_DY = 5.5; // ...and from its top
+// There are two pets, the dog and a secretary bird (bird-art.ts), and the one on the line can be switched while
+// the page is open (setPet). Both draw to the same pose names, so the state machine below runs either; what
+// differs is the art, the noise it makes, how it gets from one platform to the next (the dog hops, the bird
+// flies) and what it does when it gets somewhere (the dog sniffs, the bird pecks, and once it has got hungry
+// it hunts a snake: stamps on it, misses, tries again, and eats it).
+interface Art {
+  COLORS: Record<string, string>;
+  POSES: Record<string, object>;
+  WALK: string[];
+  RUN: string[];
+  W: number;
+  H: number;
+  FW: number;
+  FH: number;
+  PAW_GRID: Grid;
+  PAW_W: number;
+  PAW_H: number;
+  drawBody(pose: object): Grid;
+  drawFace(o: FaceOpts): Grid;
+}
+const ART: Record<Pet, Art> = { dog: dogArt, bird: birdArt };
+
+/** A pet's face as a little SVG for a button: 14 x 13 art pixels, `px` screen pixels to each. */
+export function petIcon(pet: Pet, px = 1): string {
+  const a = ART[pet];
+  return `<svg width="${a.FW * px}" height="${a.FH * px}" viewBox="0 0 ${a.FW} ${a.FH}" shape-rendering="crispEdges" aria-hidden="true">${paths(a.drawFace({}), a.COLORS)}</svg>`;
+}
+
+const SNIFF_ODDS = 0.35; // chance that it stops for a sniff (a peck, for the bird) when it gets somewhere
+const SNIFF_FOR = 1.3; // s it spends at it
+const HUNGRY_AFTER = 22; // s since it last ate before the bird is hungry (a hungry bird goes snake hunting)
+const WING_BEAT = 0.1; // s each frame of a wing beat is held for
+const HUNT_LOOK = 0.55; // s it stares at the snake before it first raises a foot
+const HUNT_CYCLE = 0.8; // s from one stamp to the next
+const HUNT_RAISE = 0.3; // s the foot is up before it comes down
+const HUNT_DART = 0.2; // s the snake takes to dash out of the way of a stamp that missed...
+const HUNT_SHIFT = 7; // ...and the art pixels it goes
+const HUNT_GAP = 12; // art pixels from the bird's centre to the snake's, at the start
+const HUNT_EAT = 0.55; // s after the stamp that gets it before it is gone, eaten
+const HUNT_END = 1.35; // s after that stamp that the bird is done
 const COVER = 0.3; // how much of the face stays behind the letter
 const PEEK_AFTER = 0.8; // s before the face first slides out
 const PEEK_RISE = 0.6; // s the slide takes
@@ -74,24 +115,33 @@ export interface PupView {
 // card to hop to); away: gone, until there is somewhere to stand again
 // teeter: the flinch on the edge of the line or a card, just before it jumps back from it
 // plop: sitting where it fell over backwards, stunned
-// leap: in the air between two platforms
-type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'plop' | 'leave' | 'away' | 'leap';
+// leap: in the air between two platforms (hopping, or flying for the bird)
+// hunt: the hungry bird after a snake, from the first look to the last swallow
+type State = 'peek' | 'drop' | 'land' | 'idle' | 'walk' | 'sniff' | 'sleep' | 'teeter' | 'plop' | 'leave' | 'away' | 'leap' | 'hunt';
 
 const easeOut = (t: number) => 1 - (1 - clamp(t)) ** 3;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const nowS = () => performance.now() / 1000;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-export function createPup(host: HTMLElement) {
+export function createPup(host: HTMLElement, initial: Pet = 'dog') {
   const layer = document.createElement('div');
   layer.className = 'pup-layer';
   layer.setAttribute('aria-hidden', 'true');
-  const dog = document.createElement('div');
+  const dog = document.createElement('div'); // (whichever pet it is: the element is the pet's body)
   dog.className = 'pup';
   const face = document.createElement('div');
   face.className = 'pup pup-face';
   layer.append(face, dog);
   host.append(layer);
+
+  // the pet on the line, and its art; setPet swaps the lot
+  let pet: Pet = initial;
+  let bird = pet === 'bird';
+  let { COLORS, POSES, WALK, RUN, drawBody, drawFace, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } = ART[pet];
+  let HEAD_DX = bird ? birdArt.HEAD.dx : 5.5; // art pixels from the body sprite's centre to the middle of its head...
+  let HEAD_DY = bird ? birdArt.HEAD.dy : 5.5; // ...and from its top
+  let BARK = bird ? 'squawk!' : 'woof!';
 
   let world: PupWorld | undefined;
   let view: PupView = { scrollY: 0, treeTop: 0, dx: 0, width: 0, still: false };
@@ -103,6 +153,15 @@ export function createPup(host: HTMLElement) {
   let faceKey = '';
   // card: the card a print was left on (null: the line), so it goes when that card is put away
   let paws: { el: SVGSVGElement; x: number; y: number; at: number; o: number; card: HTMLElement | null }[] = [];
+  // the snake the bird hunts (bird only): one element, three frames (two wriggles and squashed)
+  let snake: SVGSVGElement | undefined;
+  let snakeFrames: Record<string, SVGGElement> = {};
+  const snakeShown = { frame: '', tr: '', vis: 'hidden' };
+  // When the bird last ate, whether it has said it is hungry, and the hunt it is on: which way, where the snake
+  // and the bird started from, how many stamps will miss, how many have come down, and whether it has swallowed.
+  let fedAt = nowS();
+  let saidHungry = false;
+  const hunt = { dir: 1 as 1 | -1, sx: 0, bx: 0, misses: 0, done: 0, ate: false };
 
   let state: State = 'peek';
   let started = false;
@@ -201,6 +260,25 @@ export function createPup(host: HTMLElement) {
       layer.append(el);
       return { el, x: 0, y: 0, at: -1e9, o: 0, card: null };
     });
+
+    layer.querySelectorAll('.snake').forEach((n) => n.remove());
+    snake = undefined;
+    if (bird) {
+      const s = document.createElementNS(SVG_NS, 'svg');
+      s.setAttribute('class', 'snake');
+      s.setAttribute('width', String(birdArt.SNAKE_W * u));
+      s.setAttribute('height', String(birdArt.SNAKE_H * u));
+      s.setAttribute('viewBox', `0 0 ${birdArt.SNAKE_W} ${birdArt.SNAKE_H}`);
+      s.style.cssText = 'position:absolute;left:0;top:0;z-index:4;display:block;shape-rendering:crispEdges;visibility:hidden';
+      s.innerHTML = Object.entries(birdArt.SNAKE_FRAMES)
+        .map(([name, g]) => `<g data-snake="${name}" display="none">${paths(g, COLORS)}</g>`)
+        .join('');
+      layer.append(s);
+      snake = s;
+      snakeFrames = {};
+      s.querySelectorAll<SVGGElement>('g').forEach((g) => (snakeFrames[g.dataset.snake!] = g));
+      Object.assign(snakeShown, { frame: '', tr: '', vis: 'hidden' });
+    }
   }
 
   function setPose(name: string) {
@@ -231,6 +309,8 @@ export function createPup(host: HTMLElement) {
   // ---- where things are -----------------------------------------------------------------------------
 
   const half = () => (W * u) / 2;
+  // a taller sprite than the dog's has its head under the top bar sooner, so it hops that much earlier
+  const topEdge = () => TOP_EDGE + (H - dogArt.H) * u;
   const lineEnd = () => (world ? world.endRest + view.dx : 0);
 
   // Platform i: 0 is the line, i > 0 is card i - 1. Where its feet go, and the stretch its centre may be on.
@@ -257,7 +337,7 @@ export function createPup(host: HTMLElement) {
     return hi() - clear >= 1.5 * half() ? [clear, hi()] : [lo(), hi()];
   }
   const grounded = () =>
-    state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'teeter' || state === 'plop' || state === 'leave';
+    state === 'land' || state === 'idle' || state === 'walk' || state === 'sniff' || state === 'sleep' || state === 'teeter' || state === 'plop' || state === 'leave' || state === 'hunt';
 
   // ---- platforms ------------------------------------------------------------------------------------
 
@@ -290,6 +370,7 @@ export function createPup(host: HTMLElement) {
         windowY,
         plan: (i) => planArc(i, aimX(i, 0.5), state === 'away'),
         speed: scrollSpeed,
+        sprite: { w: W, h: H },
       },
       dir,
       any,
@@ -435,6 +516,86 @@ export function createPup(host: HTMLElement) {
     goal = x + dir * dist;
   }
 
+  // ---- the bird's hunger, and the snake hunt ---------------------------------------------------------
+
+  const isHungry = (s: number) => bird && s - fedAt > HUNGRY_AFTER;
+  // When the k-th stamp comes down, and where the snake and the bird are `at` s into the hunt. A stamp that
+  // misses sends the snake dashing a little way on (HUNT_DART), and the bird follows a beat later.
+  const huntImpact = (k: number) => HUNT_LOOK + k * HUNT_CYCLE + HUNT_RAISE;
+  const huntSnakeX = (at: number) => {
+    let off = 0;
+    for (let k = 0; k < hunt.misses; k++) off += easeOut((at - huntImpact(k)) / HUNT_DART) * HUNT_SHIFT * u;
+    return hunt.sx + hunt.dir * off;
+  };
+  const huntBirdX = (at: number) => {
+    let off = 0;
+    for (let k = 0; k < hunt.misses; k++) off += easeOut((at - huntImpact(k) - 0.1) / 0.3) * HUNT_SHIFT * u;
+    return hunt.bx + hunt.dir * off;
+  };
+
+  // Hungry, and somewhere with room: a snake turns up in front of it and it goes for it. Returns false (and
+  // does nothing) if there is no room on this platform for a snake.
+  function startHunt(): boolean {
+    const ahead = hi() - x;
+    const behind = x - lo();
+    const dir: 1 | -1 = ahead >= behind ? 1 : -1;
+    const spare = Math.max(ahead, behind) - (HUNT_GAP + birdArt.SNAKE_W / 2) * u; // beyond the snake's far end
+    if (spare < 0) return false;
+    hunt.dir = dir;
+    hunt.sx = x + dir * HUNT_GAP * u;
+    hunt.bx = x;
+    hunt.done = 0;
+    hunt.ate = false;
+    // it misses once or twice (if there is room to chase it)
+    hunt.misses = Math.min(Math.floor(spare / (HUNT_SHIFT * u)), Math.random() < 0.5 ? 1 : 2);
+    facing = dir;
+    state = 'hunt';
+    t = 0;
+    setPose('peckA');
+    if (!view.still) puff(hunt.sx, feet - u, 4, 1.5);
+    return true;
+  }
+
+  // Look at it, raise a foot, stamp; the snake dashes out from under it; follow it, and again; the last stamp
+  // gets it. Then a gulp and a little dance, and it is not hungry any more.
+  function stepHunt(s: number) {
+    const last = huntImpact(hunt.misses); // the stamp that gets it
+    facing = hunt.dir;
+    while (hunt.done <= hunt.misses && t >= huntImpact(hunt.done)) {
+      hunt.done++;
+      if (!view.still) puff(x + hunt.dir * 9 * u, feet - u * 1.5, 3, 1.2); // dust where the foot came down
+    }
+    const from = x;
+    x = clamp(huntBirdX(t), lo(), Math.max(lo(), hi()));
+    travel += Math.abs(x - from);
+    if (travel - stampedAt >= PRINT_GAP * u) { stampedAt = travel; stamp(); }
+
+    if (t >= last + HUNT_EAT) {
+      if (!hunt.ate) { hunt.ate = true; say('gulp!', x, feet - H * u - 2); }
+      setPose(Math.floor(t / 0.14) % 2 ? 'happyB' : 'happyA');
+    } else if (t >= last) {
+      setPose('sniff1'); // its foot on it
+    } else if (t < HUNT_LOOK) {
+      setPose('peckA');
+    } else {
+      const into = (t - HUNT_LOOK) % HUNT_CYCLE;
+      if (into < HUNT_RAISE) setPose('sniff0');
+      else if (into < HUNT_RAISE + 0.1) setPose('sniff1');
+      else if (into < HUNT_RAISE + 0.4) setPose(WALK[Math.floor(t / 0.1) % WALK.length]); // after it
+      else setPose('peckA');
+    }
+
+    if (t >= last + HUNT_END) {
+      fedAt = s;
+      saidHungry = false;
+      state = 'idle';
+      t = 0;
+      idleFor = rand(0.6, 1.2);
+      happyFor = 0;
+      if (!view.still) heart(x + facing * half() * 0.2, feet - H * u - 2);
+    }
+  }
+
   // where on platform j to land, `f` of the way across the middle of it (cards: the middle 40%)
   function aimX(j: number, f: number) {
     if (j > 0) {
@@ -446,15 +607,16 @@ export function createPup(host: HTMLElement) {
   }
 
   // The arc for a hop to x1 on platform j, ballistic and in tree coordinates, so scrolling while it is in the
-  // air doesn't change it. It rises a little above the higher end, more the further it has to go sideways.
-  // From a long way out of the window (a fast flick, or when it is away) it starts from just outside the
-  // window instead, which looks like dropping in from above (or leaping up from below).
+  // air doesn't change it (the bird's is a flight: eased, not ballistic, see pup-math.ts). It rises a little
+  // above the higher end, more the further it has to go sideways. From a long way out of the window (a fast
+  // flick, or when it is away) it starts from just outside the window instead, which looks like dropping in
+  // from above (or leaping up from below).
   function planArc(j: number, x1: number, outside: boolean) {
-    const frame = { unit: u, scrollY: view.scrollY, treeTop: view.treeTop, width: view.width, height: innerHeight };
+    const frame = { unit: u, scrollY: view.scrollY, treeTop: view.treeTop, width: view.width, height: innerHeight, sprite: { w: W, h: H }, fly: bird };
     return planArcIn(frame, x, feet, floorOf(j), x1, outside, rand);
   }
 
-  // Hop to platform j.
+  // Hop (or fly) to platform j.
   function leapTo(j: number, fromOutside = false) {
     arc = planArc(j, aimX(j, Math.random()), fromOutside);
     x = arc.x0;
@@ -469,7 +631,7 @@ export function createPup(host: HTMLElement) {
     vy = arc.vy0;
     quiet = false;
     phew = false;
-    setPose('run0');
+    setPose(bird ? 'diveA' : 'run0');
     if (!fromOutside && !view.still) puff(x, feet - u * 1.5, 3, 1.2);
   }
 
@@ -479,9 +641,10 @@ export function createPup(host: HTMLElement) {
     feet = at.feet;
     x = at.x;
     vy = at.vy;
-    // a gallop's stretch going up; coming down it skydives, legs out to the sides and ears blown up, which
-    // flutter between two frames
-    setPose(vy < 0 ? 'run0' : Math.floor(t / DIVE_FLAP) % 2 ? 'diveB' : 'diveA');
+    // The bird flies, beating its wings all the way. The dog does a gallop's stretch going up; coming down it
+    // skydives, legs out to the sides and ears blown up, which flutter between two frames.
+    if (bird) setPose(Math.floor(t / WING_BEAT) % 2 ? 'diveB' : 'diveA');
+    else setPose(vy < 0 ? 'run0' : Math.floor(t / DIVE_FLAP) % 2 ? 'diveB' : 'diveA');
     if (t < arc.T) return;
     stand(dest);
     x = clamp(x, lo(), Math.max(lo(), hi()));
@@ -489,7 +652,7 @@ export function createPup(host: HTMLElement) {
     // a pause so it doesn't chain-hop, unless scrolling has already carried the platform out of the window
     // while it was in the air: then it should hop on at once
     const y = windowY(perch);
-    readyAt = nowS() + (y < TOP_EDGE || y > innerHeight - BOTTOM_EDGE ? 0.1 : LEAP_COOLDOWN);
+    readyAt = nowS() + (y < topEdge() || y > innerHeight - BOTTOM_EDGE ? 0.1 : LEAP_COOLDOWN);
   }
 
   // Scrolling has taken the platform it stands on out of the window (or put it away under its feet): hop to
@@ -501,7 +664,7 @@ export function createPup(host: HTMLElement) {
     let dir: 1 | -1;
     if (gone) dir = -1;
     else if (s < readyAt && winY > BAR + 8) return false; // not again so soon, unless it is about to go under the bar
-    else if (winY < TOP_EDGE + (LEAP_RISE + LEAP_ARC) * u) dir = 1;
+    else if (winY < topEdge() + (LEAP_RISE + LEAP_ARC) * u) dir = 1;
     else if (winY > innerHeight - BOTTOM_EDGE) dir = -1;
     else return false;
     const j = pickSpot(dir, gone);
@@ -509,7 +672,7 @@ export function createPup(host: HTMLElement) {
       if (!gone && dir > 0) {
         // it sets off early enough that the top of the arc is still below the bar, not under it
         const p = planArc(j, aimX(j, 0.5), false);
-        if (view.treeTop + p.top - view.scrollY >= TOP_EDGE) return false;
+        if (view.treeTop + p.top - view.scrollY >= topEdge()) return false;
       }
       leapTo(j);
       return true;
@@ -531,11 +694,11 @@ export function createPup(host: HTMLElement) {
     lastActive = nowS();
     if (state === 'peek') {
       const b = faceBox();
-      say('woof!', b.left + b.w / 2, b.top - 4);
+      say(BARK, b.left + b.w / 2, b.top - 4);
       return;
     }
     if (!grounded() || state === 'leave') return;
-    say('woof!', x, feet - H * u - 2);
+    say(BARK, x, feet - H * u - 2);
     if (state === 'sleep') { settle(); return; }
     state = 'drop';
     quiet = true;
@@ -628,6 +791,7 @@ export function createPup(host: HTMLElement) {
       feet += vy * dt;
       if (vx) x = clamp(x + vx * dt, lo(), Math.max(lo(), hi()));
       if (scared) setPose(vy < 0 ? 'teeterB' : 'plopA'); // up with a start, then over backwards
+      else if (bird) setPose(Math.floor(t / WING_BEAT) % 2 ? 'diveB' : 'diveA'); // the bird flaps
       if (vy > 0 && feet >= floorY()) land();
       return;
     }
@@ -686,7 +850,10 @@ export function createPup(host: HTMLElement) {
 
     if (considerLeap(s)) return;
 
-    const want = attention();
+    // a hungry bird has no time for the cursor
+    const hungry = isHungry(s);
+    if (hungry && !saidHungry && state !== 'hunt') { saidHungry = true; say('hungry', x, feet - H * u - 2); }
+    const want = hungry ? null : attention();
     // where it goes to meet the cursor: a few steps short of an edge it has just had a fright at
     const hiSafe = Math.max(lo(), hi() - (s < waryUntil ? EDGE_SAFE * u : 0));
     const aim = want === null ? null : clamp(want, lo(), hiSafe);
@@ -711,10 +878,13 @@ export function createPup(host: HTMLElement) {
       // curled up; z's drift up. Anything at all wakes it.
       setPose('lie');
       if (s >= nextZ) { nextZ = s + 1.3; fx('z', 'fx-z', x + half() * 0.7, feet - H * u * 0.45, 1500, '--rise:-22px;--drift:10px'); }
-      if (want !== null || s - lastActive < 0.4) settle();
+      if (want !== null || s - lastActive < 0.4 || hungry) settle();
+    } else if (state === 'hunt') {
+      stepHunt(s);
     } else if (state === 'sniff') {
-      setPose(Math.floor(t / 0.2) % 2 ? 'sniff1' : 'sniff0');
-      if (want !== null || t > 1.3) { state = 'idle'; t = 0; idleFor = rand(0.4, 1); }
+      // the dog sniffs; the bird has no use for that, and pecks at the ground
+      setPose(bird ? (Math.floor(t / 0.25) % 2 ? 'peckB' : 'peckA') : Math.floor(t / 0.2) % 2 ? 'sniff1' : 'sniff0');
+      if (want !== null || t > SNIFF_FOR) { state = 'idle'; t = 0; idleFor = rand(0.4, 1); }
     } else if (state === 'idle') {
       const d = aim === null ? 0 : aim - x;
       if (aim !== null && Math.abs(d) <= reach) {
@@ -784,7 +954,9 @@ export function createPup(host: HTMLElement) {
           state = 'teeter';
           t = 0;
           if (s - whoaAt > 2) { whoaAt = s; say('whoa!', x, feet - H * u - 2); }
-        } else if (!follow && Math.random() < 0.35) {
+        } else if (!follow && hungry && startHunt()) {
+          // (the hunt has begun)
+        } else if (!follow && Math.random() < SNIFF_ODDS) {
           // having got somewhere it sometimes stops for a sniff
           state = 'sniff';
           t = 0;
@@ -796,6 +968,25 @@ export function createPup(host: HTMLElement) {
         }
       }
     }
+  }
+
+  // the snake the bird is after: wriggling where it is, flat once it has been stamped on, gone once eaten
+  function drawSnake() {
+    if (!snake) return;
+    const last = huntImpact(hunt.misses);
+    const on = state === 'hunt' && t < last + HUNT_EAT;
+    const vis = on ? '' : 'hidden';
+    if (vis !== snakeShown.vis) { snakeShown.vis = vis; snake.style.visibility = vis; }
+    if (!on) return;
+    const frame = t >= last ? 'flat' : Math.floor(t / 0.12) % 2 ? 'b' : 'a';
+    if (frame !== snakeShown.frame) {
+      snakeFrames[snakeShown.frame]?.setAttribute('display', 'none');
+      snakeFrames[frame]?.removeAttribute('display');
+      snakeShown.frame = frame;
+    }
+    const w = birdArt.SNAKE_W * u;
+    const tr = `translate(${Math.round(huntSnakeX(t) - w / 2)}px, ${Math.round(feet - birdArt.SNAKE_H * u)}px)${hunt.dir < 0 ? ' scaleX(-1)' : ''}`;
+    if (tr !== snakeShown.tr) { snakeShown.tr = tr; snake.style.transform = tr; }
   }
 
   function render() {
@@ -819,6 +1010,7 @@ export function createPup(host: HTMLElement) {
     }
 
     if (shown.faceVis !== 'hidden') { shown.faceVis = 'hidden'; face.style.visibility = 'hidden'; }
+    drawSnake();
     if (!pose) setPose(state === 'drop' ? 'fall' : state === 'leap' ? 'diveA' : state === 'land' ? 'land' : state === 'sleep' ? 'lie' : 'sit'); // after a rebuild
     if (grounded()) feet = floorY();
 
@@ -894,7 +1086,38 @@ export function createPup(host: HTMLElement) {
   // the loop parks itself while the tab is hidden; pick it up again when it comes back
   document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
 
+  // Swap the pet for the other one, where it stands (or flies), in a puff. The new one is not hungry yet.
+  function setPet(next: Pet) {
+    if (next === pet) return;
+    pet = next;
+    bird = pet === 'bird';
+    ({ COLORS, POSES, WALK, RUN, drawBody, drawFace, W, H, FW, FH, PAW_GRID, PAW_W, PAW_H } = ART[pet]);
+    HEAD_DX = bird ? birdArt.HEAD.dx : 5.5;
+    HEAD_DY = bird ? birdArt.HEAD.dy : 5.5;
+    BARK = bird ? 'squawk!' : 'woof!';
+    fedAt = nowS();
+    saidHungry = false;
+    if (!world) return;
+    const was = state;
+    build();
+    if (was !== 'peek' && was !== 'away' && was !== 'leave') {
+      // mid-air, it lands where it was going; either way it ends up on its feet on that platform
+      if (was === 'leap') stand(dest);
+      x = clamp(x, lo(), Math.max(lo(), hi()));
+      feet = floorY();
+      if (!view.still) puff(x, feet - (H * u) / 2, 6, 1.4);
+      settle();
+    }
+    if (started) { render(); fadePaws(); wake(); }
+  }
+
   return {
+    /** Which pet is on the line. */
+    get pet() {
+      return pet;
+    },
+    /** Swap the pet (dog <-> bird). */
+    setPet,
     /** The tree was (re)built: new positions, maybe a new size. */
     layout(w: PupWorld) {
       const resized = !world || w.unit !== world.unit;

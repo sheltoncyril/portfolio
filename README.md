@@ -62,6 +62,14 @@ The name's typeface can be tried out with `?font=instrument | dm | gloock | youn
 
 To add behaviour, add a state next to the existing ones and have `step()` react to it.
 
+## The other pet
+
+There are two pets, the dog and a secretary bird, and a small round button in the top bar (next to the theme toggle, showing the pet's face; hidden without the script) swaps them on the spot, in a puff. The choice is kept in `localStorage` (`pet`); `?pet=bird` / `?pet=dog` (or just `?bird`) picks one for that visit. The dog is the default. The choice is made by `choosePet` in `src/scripts/pet.ts`; `createPup(host, pet)` takes it and `setPet()` swaps it.
+
+- `src/scripts/bird-art.ts` is the bird's pixel art, with the same pose names as the dog (and a few of its own: `peckA`, `peckB`). It is as wide as the dog and much taller (`H` is 24, against 17: it is mostly legs). The legs are one pixel wide and bend the way a bird's do: the joint you see is the ankle, and points backwards. `pup.ts` and `pup-math.ts` take the sprite's size from the art (`SpriteSize`), defaulting to the dog's, so nothing there assumes 22 x 17
+- it does not hop, it flies: the arc is a flight (`fly` in `ArcFrame`; eased, with a lift in the middle, never above the arc's `top`, and taking longer the further it goes) and the pose alternates `diveA` / `diveB`, the two ends of a wing beat. It flaps on the way down when it pops out from behind the name, too
+- it does not sniff, it pecks. After `HUNGRY_AFTER` seconds without a meal it says "hungry", stops paying attention to the cursor and, the next time it gets somewhere with room, hunts a snake (`hunt` state): it looks at it, raises a foot and stamps; the snake dashes out from under the stamp (`HUNT_DART`, `HUNT_SHIFT`) and it goes after it, once or twice, and the last stamp flattens it. Then a gulp, a little dance, and it is fed (`fedAt`) until it is hungry again. The snake is drawn by `bird-art.ts` (`SNAKE_FRAMES`) and positioned from the clock of the hunt, so the whole thing is a function of how long it has been going
+
 ## Develop
 
 ```sh

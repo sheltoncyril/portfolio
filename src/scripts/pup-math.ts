@@ -18,10 +18,25 @@ export const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n)
 /** Gravity during a hop, px/s². */
 export const leapGravity = (unit: number) => GRAVITY * LEAP_G * unit;
 
-/** Is y (in the window) somewhere good to land: far enough from the bar and the bottom that all of the dog is seen below the bar? */
-export const comfy = (y: number, unit: number, height: number) => y >= BAR + H * unit + 8 && y <= height - 56;
+/** A sprite's size in art pixels; the dog's (pup-art's W and H) unless a taller or wider one is given. */
+export interface SpriteSize {
+  w: number;
+  h: number;
+}
+const DOG: SpriteSize = { w: W, h: H };
 
-/** A hop, ballistic: from (x0, y0) to (x1, y1), launched at vy0 (negative is up), taking T seconds; `top` is the y of its apex. */
+/** Is y (in the window) somewhere good to land: far enough from the bar and the bottom that all of the dog is seen below the bar? */
+export const comfy = (y: number, unit: number, height: number, sprite: SpriteSize = DOG) =>
+  y >= BAR + sprite.h * unit + 8 && y <= height - 56;
+
+export const FLY_BASE = 0.4; // s a flight takes however short it is: it has to take off and land...
+export const FLY_SPEED = 420; // ...plus the distance at this many px/s
+
+/**
+ * A hop, ballistic: from (x0, y0) to (x1, y1), launched at vy0 (negative is up), taking T seconds; `top` is the
+ * y of its apex. A flight (`h` is set; vy0 is 0) is flown instead: eased from one end to the other with a lift of
+ * `h` px in the middle, so it never gets above `top` either.
+ */
 export interface Arc {
   x0: number;
   y0: number;
@@ -30,6 +45,7 @@ export interface Arc {
   vy0: number;
   T: number;
   top: number;
+  h?: number;
 }
 
 /** The part of the page's state a hop depends on. */
@@ -39,6 +55,8 @@ export interface ArcFrame {
   treeTop: number;
   width: number; // viewport width
   height: number; // viewport height
+  sprite?: SpriteSize; // default: the dog's
+  fly?: boolean; // it flies (wings and all) rather than hops
 }
 
 /**
@@ -59,18 +77,23 @@ export function planArc(
 ): Arc {
   const u = f.unit;
   const g = leapGravity(u);
-  const half = (W * u) / 2;
+  const { w: sw, h: sh } = f.sprite ?? DOG;
+  const half = (sw * u) / 2;
   const winTop = f.scrollY - f.treeTop; // tree y of the top of the window
   const winBottom = winTop + f.height;
   let x0 = x;
   let y0 = feet;
-  if (outside || y0 < winTop - H * u - 40) {
-    y0 = winTop - H * u - 24;
+  if (outside || y0 < winTop - sh * u - 40) {
+    y0 = winTop - sh * u - 24;
     x0 = clamp(x1 + rand(-70, 70), half + 2, Math.max(half + 2, f.width - half - 2));
-  } else if (y0 - H * u > winBottom + 40) {
-    y0 = winBottom + H * u + 24;
+  } else if (y0 - sh * u > winBottom + 40) {
+    y0 = winBottom + sh * u + 24;
   }
   const top = Math.min(y0, y1) - (LEAP_RISE * u + Math.min(0.06 * Math.abs(x1 - x0), LEAP_ARC * u));
+  if (f.fly) {
+    const T = FLY_BASE + Math.hypot(x1 - x0, y1 - y0) / FLY_SPEED;
+    return { x0, y0, x1, y1, vy0: 0, T, top, h: Math.min(y0, y1) - top };
+  }
   const vy0 = -Math.sqrt(2 * g * (y0 - top));
   const T = -vy0 / g + Math.sqrt((2 * (y1 - top)) / g);
   return { x0, y0, x1, y1, vy0, T, top };
@@ -80,9 +103,20 @@ export function planArc(
  * Where a hop has got to after t seconds (it stays at the landing from T on): the closed form rather than
  * an integration, so it comes down exactly where it was aimed.
  */
-export function arcAt(arc: Pick<Arc, 'x0' | 'y0' | 'x1' | 'vy0' | 'T'>, t: number, unit: number) {
-  const g = leapGravity(unit);
+export function arcAt(arc: Pick<Arc, 'x0' | 'y0' | 'x1' | 'vy0' | 'T'> & Partial<Pick<Arc, 'y1' | 'h'>>, t: number, unit: number) {
   const k = Math.min(t, arc.T);
+  if (arc.h !== undefined && arc.y1 !== undefined) {
+    // a flight: leaves gently and arrives gently (a half cosine), with a lift in the middle of it
+    const s = k / arc.T;
+    const e = 0.5 - 0.5 * Math.cos(Math.PI * s);
+    const de = (0.5 * Math.PI * Math.sin(Math.PI * s)) / arc.T;
+    return {
+      feet: arc.y0 + (arc.y1 - arc.y0) * e - arc.h * Math.sin(Math.PI * e),
+      x: arc.x0 + (arc.x1 - arc.x0) * e,
+      vy: (arc.y1 - arc.y0 - arc.h * Math.PI * Math.cos(Math.PI * e)) * de,
+    };
+  }
+  const g = leapGravity(unit);
   return {
     feet: arc.y0 + arc.vy0 * k + 0.5 * g * k * k,
     x: arc.x0 + (arc.x1 - arc.x0) * (k / arc.T),
@@ -102,6 +136,7 @@ export interface SpotQuery {
   windowY(i: number): number; // where platform i's top is in the window
   plan(i: number): { T: number; top: number }; // the hop to platform i (planArc's T and top)
   speed(): number; // how fast the page is being scrolled, px/s, + going down; 0 if it has stopped
+  sprite?: SpriteSize; // default: the dog's
 }
 
 /**
@@ -112,7 +147,8 @@ export interface SpotQuery {
  */
 export function pickSpot(q: SpotQuery, dir: 1 | -1 | 0, any = false): number {
   const n = q.count;
-  const want = Math.max(BAR + H * q.unit + 60, q.height * 0.4);
+  const sprite = q.sprite ?? DOG;
+  const want = Math.max(BAR + sprite.h * q.unit + 60, q.height * 0.4);
   let best = -1;
   let bestD = Infinity;
   const [from, to] = dir > 0 ? [q.perch + 1, n] : dir < 0 ? [0, q.perch - 1] : [0, n];
@@ -122,7 +158,7 @@ export function pickSpot(q: SpotQuery, dir: 1 | -1 | 0, any = false): number {
     // where it will be in the window by the time it gets there, given how fast the page is moving, and
     // (hopping up) that the top of the arc stays out from under the bar
     const y = q.windowY(i) - q.speed() * p.T;
-    if (!comfy(y, q.unit, q.height) || (dir < 0 && q.treeTop + p.top - q.scrollY < BAR - 16)) continue;
+    if (!comfy(y, q.unit, q.height, sprite) || (dir < 0 && q.treeTop + p.top - q.scrollY < BAR - 16)) continue;
     const d = Math.abs(y - want);
     if (d < bestD) { best = i; bestD = d; }
   }
