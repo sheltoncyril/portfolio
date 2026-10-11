@@ -460,3 +460,42 @@ describe('a sprite of another size', () => {
     expect(pickSpot(q({ w: W, h: H + 7 }), 1)).toBe(-1);
   });
 });
+
+describe('pickSpot: when nothing is comfortable', () => {
+  // The very bottom of the page, say: the last card's top is in the window, but too close to the bar for all of
+  // the pet to be seen under it. Without `any` there is nowhere to go (so a pet that has been flung far out of
+  // sight stays there); with it, it settles for the lowest platform that is in the window at all.
+  const u = 3;
+  const tooHigh = BAR + H * u - 20; // in the window, but not comfy
+  const q = (ys: number[], over: Partial<SpotQuery> = {}): SpotQuery => ({
+    count: ys.length - 1, perch: 0, unit: u, height: 800, treeTop: 0, scrollY: 0,
+    live: () => true, windowY: (i) => ys[i], plan: () => ({ T: 0.5, top: 0 }), speed: () => 0, ...over,
+  });
+
+  it('finds nothing without `any`', () => {
+    expect(pickSpot(q([-4000, tooHigh, tooHigh - 40]), 1)).toBe(-1);
+  });
+
+  it('with `any`, takes the lowest platform that is in the window', () => {
+    expect(pickSpot(q([-4000, tooHigh - 60, tooHigh, tooHigh - 30]), 1, true)).toBe(2);
+  });
+
+  it('still prefers a comfortable platform when there is one', () => {
+    expect(pickSpot(q([-4000, tooHigh, 400, tooHigh - 10]), 1, true)).toBe(2);
+  });
+
+  it('does not take a platform that is under the bar or off the bottom', () => {
+    expect(pickSpot(q([-4000, BAR - 10, 790 + 20]), 1, true)).toBe(-1);
+  });
+
+  it('does not take a platform that is not revealed', () => {
+    expect(pickSpot(q([-4000, tooHigh, tooHigh - 10], { live: (i) => i === 0 }), 1, true)).toBe(-1);
+  });
+
+  it('allows for how far the page will have moved by the time it gets there', () => {
+    // scrolling up at 100 px/s, T = 0.5 s: the platform will be 50 px lower than it is now
+    const fast = q([-4000, tooHigh], { speed: () => -100 });
+    expect(pickSpot(fast, 1, true)).toBe(1); // 50 px lower: still in the window
+    expect(pickSpot(q([-4000, 790], { speed: () => -100 }), 1, true)).toBe(-1); // would be off the bottom
+  });
+});

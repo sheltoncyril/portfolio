@@ -162,6 +162,17 @@ export function pickSpot(q: SpotQuery, dir: 1 | -1 | 0, any = false): number {
     const d = Math.abs(y - want);
     if (d < bestD) { best = i; bestD = d; }
   }
+  if (best < 0 && any) {
+    // Nothing is comfortable. That happens at the very bottom of the page, where the last card's top is too
+    // close to the bar for all of a tall pet to be seen under it. A pet that is out of sight is worse off than
+    // one with its head under the bar, so settle for the lowest platform that is in the window at all.
+    let lowest = -Infinity;
+    for (let i = from; i <= to; i++) {
+      if (!q.live(i)) continue;
+      const y = q.windowY(i) - q.speed() * q.plan(i).T;
+      if (y >= BAR + 8 && y <= q.height - 8 && y > lowest) { lowest = y; best = i; }
+    }
+  }
   if (best < 0 && any && dir < 0) for (let i = q.perch - 1; i >= 0 && best < 0; i--) if (q.live(i)) best = i;
   return best;
 }

@@ -182,6 +182,8 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
   // the arc of the current leap, in tree coordinates: from (x0, y0) to (x1, y1), launched at vy0, taking T s
   let arc = { x0: 0, y0: 0, x1: 0, y1: 0, vy0: 0, T: 1 };
   let readyAt = 0; // earliest time scrolling may set off another leap
+  let lastState: State = 'peek'; // the state the last frame ended in, and when it became that: for tick()
+  let changedAt = 0;
   let scrollV = 0; // smoothed scroll speed, px/s (+ going down), as of the time scrollAt
   let scrollAt = -1e9;
   let facing: 1 | -1 = 1;
@@ -670,7 +672,9 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
     else if (winY < topEdge() + (LEAP_RISE + LEAP_ARC) * u) dir = 1;
     else if (winY > innerHeight - BOTTOM_EDGE) dir = -1;
     else return false;
-    const j = pickSpot(dir, gone);
+    // (a pet that is completely out of sight takes any platform that is in the window, not only a comfortable one)
+    const lost = winY < 0 || winY - H * u > innerHeight;
+    const j = pickSpot(dir, gone || lost);
     if (j >= 0) {
       if (!gone && dir > 0) {
         // it sets off early enough that the top of the arc is still below the bar, not under it
@@ -807,7 +811,7 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
     if (state === 'away') {
       // back once there is somewhere to stand in the window: on the line (scrolled back to the top, so it is
       // long enough again) it walks in from the left edge; on a card it drops in from above
-      const j = pickSpot(0);
+      const j = pickSpot(0, true);
       if (j < 0) return;
       if (j > 0) { leapTo(j, true); return; }
       stand(0);
@@ -831,7 +835,9 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
       travel += SPRINT * 0.8 * u * dt;
       setPose(RUN[Math.floor(t / 0.07) % RUN.length]);
       kick(s);
-      if (x <= -half() - 2) { state = 'away'; t = 0; }
+      // (running out of the edge is for show: if it is off screen already, as it is after a fast scroll, it
+      // is away at once, so that it can come back as soon as there is somewhere to stand)
+      if (x <= -half() - 2 || !onScreen()) { state = 'away'; t = 0; }
       return;
     }
 
@@ -1055,9 +1061,14 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
     fadePaws();
     // Parks while it is out of the window, but not before it has had the chance to decide to come back: for
     // a moment after the page stops moving (its speed has to settle, which no scroll event will announce),
-    // and until the pause after a landing is over.
+    // until the pause after a landing is over, and until the state it is in has run its course and the next
+    // one has had a frame or two to decide. That last part matters in a fast scroll, which can carry the
+    // platform it is flying to out of the window while it is in the air: it lands off screen, and a loop that
+    // parked in 'land' (or in the middle of a fall) would never get to hop back until something woke it.
     const s = nowS();
-    const deciding = s < Math.max(scrollAt + 0.4, readyAt + 0.05);
+    if (state !== lastState) { lastState = state; changedAt = s; }
+    const running = state === 'land' || state === 'drop' || state === 'teeter' || state === 'plop' || state === 'leave';
+    const deciding = running || s < Math.max(scrollAt + 0.4, readyAt + 0.05, changedAt + 0.25);
     if (!view.still && (onScreen() || deciding) && !document.hidden) raf = requestAnimationFrame(tick);
   }
 
