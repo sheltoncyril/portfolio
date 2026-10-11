@@ -77,10 +77,10 @@ describe('bird body sprite', () => {
 // last row, so it stands on the line instead of on a dark band. In the air: drawn a row up, outline under it.
 const STANDING = [
   'stand', 'blink', 'walk0', 'walk1', 'walk2', 'walk3', 'sniff0', 'sniff1', 'teeterA', 'teeterB', 'land',
-  'plopA', 'plopB', 'sit', 'sitBlink', 'wagA', 'wagB', 'happyA', 'happyB', 'lie', 'run1', 'run3',
+  'plopA', 'plopB', 'sit', 'sitBlink', 'wagA', 'wagB', 'happyA', 'happyB', 'lie', 'run0', 'run2',
   'peckA', 'peckB', // (the bird's own: pecking at the ground)
 ];
-const AIRBORNE = ['fall', 'diveA', 'diveB', 'run0', 'run2'];
+const AIRBORNE = ['fall', 'diveA', 'diveB', 'run1', 'run3']; // (the run's flight frames are the odd ones)
 
 describe('bird feet', () => {
   it('every pose is either standing or airborne, and not both', () => {

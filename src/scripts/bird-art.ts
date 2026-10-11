@@ -204,15 +204,20 @@ const STAND: Pose = {};
 export const POSES: Record<string, Pose> = {
   stand: STAND,
   blink: { eye: 'shut' },
+  // A foot that is on the ground slides back under the body (front, middle, back); a foot that is off it
+  // swings forward again (lifted, passing through). The two legs are half a cycle apart:
+  //   near: front, middle, back, swinging      far: back, swinging, front, middle
   walk0: { near: { x: 2 }, far: { x: -2 } },
-  walk1: { dy: -1, near: { x: 1, lift: 3 }, far: {} },
+  walk1: { dy: -1, near: {}, far: { x: 1, lift: 3 } },
   walk2: { near: { x: -2 }, far: { x: 2 } },
-  walk3: { dy: -1, near: {}, far: { x: 1, lift: 3 } },
+  walk3: { dy: -1, near: { x: 1, lift: 3 }, far: {} },
   // a run: stretched out in the air, down on the toes, bunched up, push off
-  run0: { dy: -2, near: { x: 3, lift: 3 }, far: { x: -3, lift: 2 }, wings: 'half', crest: 'back', beak: true },
-  run1: { dy: -1, near: { x: 3 }, far: { x: -3 }, wings: 'half', crest: 'back', beak: true },
-  run2: { dy: -1, near: { x: 1, lift: 3 }, far: { x: -1, lift: 3 }, wings: 'half', crest: 'back', beak: true },
-  run3: { dy: -1, near: { x: 0 }, far: { x: -3 }, wings: 'half', crest: 'back', beak: true },
+  // (the same rule: the near foot lands in front, pushes off behind and swings forward through the air, and the
+  // far foot is half a cycle behind it: contact, flight, contact, flight)
+  run0: { near: { x: 2 }, far: { x: -3, lift: 3 }, wings: 'half', crest: 'back', beak: true },
+  run1: { dy: -2, near: { x: -3, lift: 3 }, far: { x: 1, lift: 3 }, wings: 'half', crest: 'back', beak: true }, // (not across the near leg)
+  run2: { near: { x: -3, lift: 3 }, far: { x: 2 }, wings: 'half', crest: 'back', beak: true },
+  run3: { dy: -2, near: { x: 2, lift: 3 }, far: { x: -2, lift: 3 }, wings: 'half', crest: 'back', beak: true },
   // the snake business: head down at it, one foot up, then stamped
   sniff0: { head: 3, near: { x: 4, lift: 4 }, far: {}, crest: 'down' },
   sniff1: { head: 3, near: { x: 5 }, far: {}, crest: 'up' },

@@ -49,6 +49,8 @@ const SNIFF_ODDS = 0.35; // chance that it stops for a sniff (a peck, for the bi
 const SNIFF_FOR = 1.3; // s it spends at it
 const HUNGRY_AFTER = 22; // s since it last ate before the bird is hungry (a hungry bird goes snake hunting)
 const WING_BEAT = 0.1; // s each frame of a wing beat is held for
+const WALK_FRAME = 0.1; // s each frame of the walk is held for (the dog's)...
+const WALK_FRAME_BIRD = 1 / 6; // ...and the bird's, whose feet go further, so that they stay still on the ground at TROT
 const HUNT_LOOK = 0.55; // s it stares at the snake before it first raises a foot
 const HUNT_CYCLE = 0.8; // s from one stamp to the next
 const HUNT_RAISE = 0.3; // s the foot is up before it comes down
@@ -309,6 +311,7 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
   // ---- where things are -----------------------------------------------------------------------------
 
   const half = () => (W * u) / 2;
+  const walkFrame = () => (bird ? WALK_FRAME_BIRD : WALK_FRAME);
   // a taller sprite than the dog's has its head under the top bar sooner, so it hops that much earlier
   const topEdge = () => TOP_EDGE + (H - dogArt.H) * u;
   const lineEnd = () => (world ? world.endRest + view.dx : 0);
@@ -581,7 +584,7 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
       const into = (t - HUNT_LOOK) % HUNT_CYCLE;
       if (into < HUNT_RAISE) setPose('sniff0');
       else if (into < HUNT_RAISE + 0.1) setPose('sniff1');
-      else if (into < HUNT_RAISE + 0.4) setPose(WALK[Math.floor(t / 0.1) % WALK.length]); // after it
+      else if (into < HUNT_RAISE + 0.4) setPose(WALK[Math.floor(t / walkFrame()) % WALK.length]); // after it
       else setPose('peckA');
     }
 
@@ -943,7 +946,7 @@ export function createPup(host: HTMLElement, initial: Pet = 'dog') {
       x = Math.min(x, b);
       travel += Math.abs(x - from);
       if (run) { setPose(RUN[Math.floor(t / 0.07) % RUN.length]); kick(s); }
-      else setPose(WALK[Math.floor(t / 0.1) % WALK.length]);
+      else setPose(WALK[Math.floor(t / walkFrame()) % WALK.length]);
       if (travel - stampedAt >= PRINT_GAP * u) { stampedAt = travel; stamp(); }
       if (arrived || (!outside && x <= a && !follow) || x >= b) {
         // Running into the end of the line (or the edge of the screen, which it treats the same): it
