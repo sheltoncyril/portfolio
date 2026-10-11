@@ -2,6 +2,9 @@
 // draws it as the reader scrolls. The <ol> underneath is the real content; the
 // SVG is decoration (aria-hidden), so everything works if this script doesn't.
 
+import { createPup } from './pup';
+import { runIntro } from './intro';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const R = 28; // corner radius where the hero line turns down
 const F = 70; // vertical run of a fork / merge curve
@@ -29,6 +32,8 @@ const rows = tree ? [...tree.querySelectorAll<HTMLElement>('.entry')] : [];
 const nameEl = document.querySelector<HTMLElement>('[data-name]');
 const slot = document.querySelector<HTMLElement>('[data-name-slot]');
 const eyebrow = document.querySelector<HTMLElement>('.eyebrow');
+const role = document.querySelector<HTMLElement>('.role');
+const lede = document.querySelector<HTMLElement>('p.intro');
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 const wide = matchMedia('(min-width: 860px)');
@@ -40,12 +45,31 @@ let entries: Row[] = [];
 let treeTop = 0;
 let treeW = 0; // viewport width the tree is laid out for; how far off-screen it waits
 let slid = ''; // last transform written to the SVG
+let heroEl: SVGPathElement | undefined; // the hero line's path, kept across rebuilds
 let forkIn: boolean | undefined; // whether the lane labels + layout toggle are currently revealed
-const nm = { x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400 };
+// cyril: where the word "Cyril" sits inside the name at full size (x, width); stem: the right-hand edge of its
+// last letter (a line: x at y, and how far x moves per px of y, since the letters lean) and the height the
+// pup's face sits at. All relative to the name's top-left; the pup hides behind that letter.
+const nm = {
+  x: 0, top: 0, tx: 0, ty: 0, scale: 1, dist: 400, fs: 16,
+  cyril: { x: 0, w: 0 },
+  stem: { x: 0, y: 0, slope: 0, cy: 0 },
+};
+let pup: ReturnType<typeof createPup> | undefined;
 
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
   root.classList.add('graph-ready');
+  pup = createPup(tree);
+  // On a first visit the page plays a typed-command intro (intro.ts); the dog waits for it to finish.
+  const intro = runIntro();
+  if (intro) {
+    pup.hold(true);
+    intro.then(() => {
+      pup?.hold(false);
+      schedule(false); // a paint, so it starts now rather than at the next scroll
+    });
+  }
 
   const q = new URLSearchParams(location.search).get('layout');
   const saved = safe(() => localStorage.getItem('layout'));
@@ -56,12 +80,19 @@ function init() {
     b.addEventListener('click', () => setLayout(b.dataset.setLayout === 'lanes' ? 'lanes' : 'branches', true)),
   );
   document.querySelector('[data-theme-toggle]')?.addEventListener('click', toggleTheme);
+  nameFontPicker();
 
   new ResizeObserver(() => schedule(true)).observe(tree);
   addEventListener('scroll', () => schedule(false), { passive: true });
   reduce.addEventListener('change', () => schedule(true));
   wide.addEventListener('change', () => schedule(true));
+  // Everything here is measured from the rendered text, so measure again whenever the web fonts arrive:
+  // on a phone connection they land well after this script runs, and `ready` alone can resolve before
+  // they have even been requested.
   document.fonts?.ready.then(() => schedule(true));
+  document.fonts?.addEventListener?.('loadingdone', () => schedule(true));
+  document.fonts?.load('italic 1em "Instrument Serif"').then(() => schedule(true), () => {});
+  addEventListener('load', () => schedule(true));
   build();
   paint();
 }
@@ -75,6 +106,55 @@ function setLayout(l: Layout, persist: boolean) {
     safe(() => localStorage.setItem('layout', l));
     schedule(true);
   }
+}
+
+// The name's face can be switched with ?font=dm | gloock | young | instrument. With ?font or ?fonts in the
+// URL a small picker is shown as well, to try them on a phone; without either nothing changes.
+const NAME_FONTS = [
+  { key: 'instrument', family: 'Instrument Serif', label: 'Instrument' },
+  { key: 'dm', family: 'DM Serif Display', label: 'DM Serif' },
+  { key: 'gloock', family: 'Gloock', label: 'Gloock' },
+  { key: 'young', family: 'Young Serif', label: 'Young Serif' },
+];
+
+function setNameFont(key: string) {
+  const f = NAME_FONTS.find((x) => x.key === key) ?? NAME_FONTS[0];
+  if (f.key === 'instrument') delete root.dataset.nameFont;
+  else root.dataset.nameFont = f.key;
+  document.querySelectorAll<HTMLButtonElement>('[data-name-font-pick]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.nameFontPick === f.key)),
+  );
+  // everything the dog hides behind is measured from the rendered letters, so measure again once it is in
+  document.fonts?.load(`italic 1em "${f.family}"`).then(() => schedule(true), () => {});
+  schedule(true);
+}
+
+function nameFontPicker() {
+  const params = new URLSearchParams(location.search);
+  const want = params.get('font');
+  if (want) setNameFont(want);
+  if (want === null && !params.has('fonts')) return;
+  const bar = document.createElement('div');
+  bar.className = 'font-pick';
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Name font');
+  for (const f of NAME_FONTS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = f.label;
+    b.dataset.nameFontPick = f.key;
+    b.setAttribute('aria-pressed', String((want ?? 'instrument') === f.key));
+    b.addEventListener('click', () => {
+      setNameFont(f.key);
+      safe(() => {
+        const u = new URL(location.href);
+        u.searchParams.set('font', f.key);
+        history.replaceState(null, '', u);
+      });
+    });
+    bar.append(b);
+  }
+  document.body.append(bar);
 }
 
 function toggleTheme() {
@@ -115,6 +195,71 @@ function measureName() {
   nm.tx = parseFloat(getComputedStyle(document.querySelector('.bar')!).paddingLeft) || 20;
   nm.ty = (BAR_H - r.height * nm.scale) / 2;
   nm.dist = Math.min(innerHeight * 0.55, 460);
+  nm.fs = fs;
+
+  const word = nameEl.querySelector<HTMLElement>('span:last-child');
+  if (word) {
+    const c = word.getBoundingClientRect();
+    nm.cyril = { x: c.left - r.left, w: c.width };
+    // an empty inline-block sits on the baseline, which the layout box alone doesn't give us
+    const probe = document.createElement('i');
+    probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+    word.append(probe);
+    const baseline = probe.getBoundingClientRect().bottom - r.top;
+    probe.remove();
+    nm.stem = stemOf(word, r, baseline, fs);
+  }
+}
+
+// The right-hand edge of the last letter of the word, found by drawing that letter on a canvas in the same
+// font and reading its pixels: that works for any font (serifs, slanted or not) without knowing its metrics.
+function stemOf(word: HTMLElement, name: DOMRect, baseline: number, fs: number) {
+  const text = word.lastChild;
+  // fallback if anything below fails: a typical upright-ish stem a little in from the right of the word
+  const fallback = { x: nm.cyril.x + nm.cyril.w - fs * 0.12, y: baseline - fs * 0.3, slope: -0.2, cy: baseline - fs * 0.38 };
+  if (!text || text.nodeType !== 3 || !(text as Text).length) return fallback;
+  const n = (text as Text).length;
+  const range = document.createRange();
+  range.setStart(text, n - 1);
+  range.setEnd(text, n);
+  const originX = range.getBoundingClientRect().left - name.left; // where the letter's drawing starts
+
+  const st = getComputedStyle(word);
+  const k = 2; // draw at twice the size for sub-pixel accuracy
+  const size = fs * k;
+  const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  if (!ctx) return fallback;
+  const pad = Math.ceil(size * 0.3);
+  const base = Math.ceil(size * 1.1);
+  const cw = Math.ceil(size * 1.5);
+  const ch = Math.ceil(size * 1.4);
+  ctx.canvas.width = cw;
+  ctx.canvas.height = ch;
+  ctx.font = `${st.fontStyle} ${st.fontWeight} ${size}px ${st.fontFamily}`;
+  ctx.fillStyle = '#000';
+  ctx.fillText((text as Text).data[n - 1], pad, base);
+  let data: Uint8ClampedArray;
+  try { data = ctx.getImageData(0, 0, cw, ch).data; } catch { return fallback; }
+
+  const inkRight = (row: number) => {
+    for (let px = cw - 1; px >= 0; px--) if (data[(row * cw + px) * 4 + 3] > 110) return px;
+    return -1;
+  };
+  let topRow = -1;
+  for (let row = 0; row < ch && topRow < 0; row++) if (inkRight(row) >= 0) topRow = row;
+  if (topRow < 0 || topRow >= base) return fallback;
+  const height = base - topRow; // how tall the letter stands above the baseline, in canvas px
+  // two rows well inside the letter, clear of its serifs
+  const rowA = Math.round(base - height * 0.28);
+  const rowB = Math.round(base - height * 0.8);
+  const xa = inkRight(rowA);
+  const xb = inkRight(rowB);
+  if (xa < 0 || xb < 0) return fallback;
+  const toX = (px: number) => originX + (px - pad) / k;
+  const toY = (row: number) => baseline + (row - base) / k;
+  const ya = toY(rowA);
+  const yb = toY(rowB);
+  return { x: toX(xa), y: ya, slope: (toX(xb) - toX(xa)) / (yb - ya), cy: baseline - (height / k) * 0.52 };
 }
 
 function build() {
@@ -213,6 +358,24 @@ function build() {
   }
   dots.push({ x: tx, y: headY, kind: 'head' });
 
+  // the dog stands on the hero line, and hops from card to card as you scroll; it peeks over the name before
+  // that. The cards are measured as laid out (offsets), not as drawn: a card that has not been revealed yet
+  // is nudged down by its transform, and one under the cursor up.
+  const ox = nm.x; // the name's top-left in tree coordinates, as it sits at the top of the page
+  const oy = nm.top - treeTop;
+  pup?.layout({
+    lineY: y0,
+    endRest: tx - r,
+    nameEnd: ox + nm.cyril.x + nm.cyril.w,
+    unit: Math.min(4, Math.max(2, Math.round(nm.fs / 26))), // whole px per art pixel, scaled with the name
+    stem: { x: ox + nm.stem.x, y: oy + nm.stem.y, slope: nm.stem.slope, cy: oy + nm.stem.cy },
+    cards: rows.map((el) => {
+      const c = el.querySelector<HTMLElement>('.card')!;
+      const e = rel(el);
+      return { el, x: e.x + c.offsetLeft, y: e.y + c.offsetTop, w: c.offsetWidth, h: c.offsetHeight };
+    }),
+  });
+
   render();
 }
 
@@ -220,22 +383,37 @@ function render() {
   // clientWidth, not scrollWidth: the SVG is translated off to the right, which scrollWidth would count
   const w = Math.ceil(tree!.clientWidth);
   const hgt = Math.ceil(tree!.scrollHeight);
-  svg!.setAttribute('width', String(w));
+  // The hero line starts one screen-width to the left of the tree, i.e. outside the SVG's own box, and the box
+  // is moved about with a transform. Some browsers (iOS Safari among them) clip a composited element to its
+  // box whatever `overflow` says, which would take the left of the line away; so the box reaches back that
+  // far too and everything is drawn inside it.
+  const back = treeW + 40;
+  svg!.style.left = `${-back}px`;
+  svg!.setAttribute('width', String(w + back));
   svg!.setAttribute('height', String(hgt));
-  svg!.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
-  svg!.replaceChildren();
+  svg!.setAttribute('viewBox', `${-back} 0 ${w + back} ${hgt}`);
+  // Everything is drawn again, except the hero line: its element is kept, so a rebuild in the middle of it
+  // drawing itself in (fonts arriving, a resize, during the shell intro) neither restarts nor cuts it short.
+  for (const c of [...svg!.children]) if (c !== heroEl) c.remove();
 
-  const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>) => {
+  const mk = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>, before?: Node | null) => {
     const el = document.createElementNS(SVG_NS, tag);
     for (const k in attrs) el.setAttribute(k, attrs[k]);
-    svg!.append(el);
+    svg!.insertBefore(el, before ?? null);
     return el;
   };
 
-  for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' });
+  // (the ghosts go under the hero line, where they always were)
+  for (const s of segs) if (!s.hero) mk('path', { d: s.d, class: 'ghost' }, heroEl);
   for (const s of segs) {
     s.last = undefined;
-    s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
+    if (s.hero && heroEl) {
+      heroEl.setAttribute('d', s.d);
+      s.el = heroEl;
+    } else {
+      s.el = mk('path', { d: s.d, pathLength: '1', class: `seg ${s.kind}${s.hero ? ' hero' : ''}` });
+      if (s.hero) heroEl = s.el;
+    }
   }
   for (const d of dots) {
     const r = d.kind === 'head' ? 8 : d.kind === 'tick' ? 4 : 6;
@@ -262,6 +440,7 @@ function paint() {
   const e = dockProgress();
   paintName(e);
   paintTree(e);
+  pup?.sync({ scrollY, treeTop, dx: (1 - e) * treeW, width: treeW, still });
   // the lane labels, the layout toggle and the cards wait until the tree has finished sliding in, so
   // none of them is ever seen next to a tree that's still off its mark
   const placed = e >= 0.99;
@@ -305,6 +484,15 @@ function paintName(e: number) {
   nameEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
   nameEl.classList.toggle('docked', e > 0.98);
   if (eyebrow) eyebrow.style.opacity = String(clamp(1 - e * 5));
+  // The role and the intro are pushed off to the left, fading, as the tree arrives from the right (the trunk
+  // would otherwise run through them). With reduced motion the tree is simply there, so they stay. Inline
+  // styles only while it is under way: at rest the stylesheet (and the intro's hidden state) applies.
+  const out = reduce.matches ? 0 : clamp(e * 4);
+  for (const [el, dist] of [[role, 72], [lede, 96]] as const) {
+    if (!el) continue;
+    el.style.opacity = out > 0 ? String(1 - out) : '';
+    el.style.transform = out > 0 ? `translateX(${(-out * dist).toFixed(1)}px)` : '';
+  }
 }
 
 init();

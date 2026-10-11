@@ -13,6 +13,10 @@
   --font-sans: 'Geist Variable', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
   --font-display: 'Instrument Serif', Georgia, serif;
+  /* the name's face, and how wide it sets relative to Instrument Serif (the size is divided by it, so the
+     name takes the same width whichever face is used) */
+  --font-name: 'Instrument Serif', Georgia, serif;
+  --name-k: 1;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --wrap: 1200px;
   --pad: 20px;
@@ -112,6 +116,32 @@ a:hover { text-decoration-color: currentColor; }
 .node:not(.on) { transform: scale(0.7); }
 .node.rh:not(.on) { transform: rotate(45deg) scale(0.7); }
 
+/* the dog (src/scripts/pup.ts): decoration, positioned in tree coordinates so it scrolls with the line */
+.pup-layer { position: absolute; left: 0; top: 0; width: 100%; height: 0; pointer-events: none; }
+.pup { position: absolute; left: 0; top: 0; z-index: 5; will-change: transform; }
+.pup svg { display: block; shape-rendering: crispEdges; }
+.paw { position: absolute; z-index: 2; shape-rendering: crispEdges; }
+/* little effects: the puff when it lands or pops out, hearts, sleepy z's, the bark */
+.dust { position: absolute; z-index: 11; background: var(--trunk); opacity: 0; animation: dust 0.5s steps(4) forwards; }
+@keyframes dust {
+  from { opacity: 0.9; transform: translate(0, 0); }
+  to { opacity: 0; transform: translate(var(--dx), -12px); }
+}
+.fx { position: absolute; z-index: 13; pointer-events: none; opacity: 0; animation: fx-rise var(--ms, 1.2s) steps(8) forwards; }
+.fx svg { display: block; shape-rendering: crispEdges; }
+.fx-z { font: 700 0.75rem var(--font-mono); color: var(--muted); }
+.fx-say {
+  font: 600 0.72rem var(--font-mono); color: var(--text); white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px;
+  transform: translate(-50%, -100%);
+}
+@keyframes fx-rise {
+  0% { opacity: 0; margin-top: 4px; }
+  12% { opacity: 1; margin-top: 0; }
+  70% { opacity: 1; }
+  100% { opacity: 0; margin-top: var(--rise, -14px); margin-left: var(--drift, 0px); }
+}
+
 /* hero */
 .hero {
   min-height: 92svh; max-width: var(--wrap); margin-inline: auto; padding: 96px var(--pad) 0;
@@ -119,10 +149,58 @@ a:hover { text-decoration-color: currentColor; }
 }
 .eyebrow { font: 500 0.8rem var(--font-mono); color: var(--muted); margin: 0 0 1.5rem; }
 .prompt { color: var(--hw); }
-.name {
-  font: 400 clamp(3.2rem, 12.5vw, 10.5rem)/0.9 var(--font-display);
-  letter-spacing: -0.02em; margin: 0 0 1.5rem; white-space: nowrap;
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
+/* Shell-style start (src/scripts/intro.ts). Everything here is under `html.sh`, a class the head script adds
+   before first paint only when the intro will play and the script removes at the end, so without JS, with
+   reduced motion, or on a second visit the page is simply the finished one. Nothing is `display:none` (the
+   layout never moves, and the name is measured as it will be), only transparent until its turn. */
+.cursor { display: none; }
+/* (an inline box with its block hung off it: an inline-block would add a place for the line to break) */
+html.sh .cursor { display: inline; position: relative; }
+html.sh .cursor::after {
+  content: ''; position: absolute; left: 0; top: 0.05em; width: 0.6em; height: 1.15em; background: var(--text);
+  animation: sh-blink 0.8s steps(1) infinite;
+}
+html.sh.sh-typing .cursor::after { animation: none; } /* solid while keys are going in */
+html.sh.sh-enter .cursor { display: none; } /* after Enter the cursor moves on to the output */
+@keyframes sh-blink { 50% { opacity: 0; } }
+html.sh [data-rest] { visibility: hidden; } /* the rest of the command still takes its room */
+html.sh .bar, html.sh .name { opacity: 0; transition: opacity 0.35s ease; }
+html.sh .bar { pointer-events: none; } /* invisible, so not tappable either: a tap only skips the intro */
+html.sh .role, html.sh .intro { opacity: 0; transform: translateY(6px); transition: opacity 0.3s ease, transform 0.3s ease; }
+html.sh .seg.hero { stroke-dashoffset: 1; transition: stroke-dashoffset 0.7s cubic-bezier(0.3, 0.6, 0.2, 1); }
+html.sh.sh-bar .bar, html.sh.sh-name .name { opacity: 1; }
+html.sh.sh-role .role, html.sh.sh-intro .intro { opacity: 1; transform: none; }
+html.sh.sh-line .seg.hero { stroke-dashoffset: 0; }
+/* Until the script has run (`graph-ready`, below) the name is still in the flow with its full bottom margin;
+   once it has, the slot that stands in for it has a smaller one. Use that one from the start, so the prompt
+   doesn't hop down a few pixels the moment the script arrives. */
+html.sh:not(.graph-ready) .name { margin-bottom: 0.5rem; }
+/* The name never wraps, so its size is also capped at what fits between the page's padding (about 4.5em wide
+   with its italic): a larger system font size, page zoom or a fallback face can't push it off the screen.
+   The right padding is for the italic's overhang: the name is a composited layer once the script runs, and some
+   browsers clip a layer to its box, which used to take the tip off the last letter. */
+.name {
+  font: 400 min(
+    clamp(calc(3.2rem / var(--name-k)), calc(12.5vw / var(--name-k)), calc(10.5rem / var(--name-k))),
+    calc((100vw - 2 * var(--pad)) / (4.5 * var(--name-k)))
+  )/0.9 var(--font-name);
+  letter-spacing: -0.02em; margin: 0 0 1.5rem; white-space: nowrap; padding-right: 0.25em;
+}
+/* ?font=dm | gloock | young switches the name's face (the preview has a picker for it) */
+:root[data-name-font='dm'] { --font-name: 'DM Serif Display', 'Instrument Serif', Georgia, serif; --name-k: 1.27; }
+:root[data-name-font='gloock'] { --font-name: 'Gloock', 'Instrument Serif', Georgia, serif; --name-k: 1.33; }
+:root[data-name-font='young'] { --font-name: 'Young Serif', 'Instrument Serif', Georgia, serif; --name-k: 1.5; }
+.font-pick {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 30;
+  display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 99px;
+  background: var(--surface); font: 500 0.72rem var(--font-mono);
+}
+.font-pick button { background: none; border: 0; color: var(--muted); padding: 5px 10px; border-radius: 99px; cursor: pointer; font: inherit; }
+.font-pick button[aria-pressed='true'] { background: var(--bg); color: var(--text); }
 .name a { text-decoration: none; }
 .name span:last-child { font-style: italic; color: var(--hw); }
 .name-slot { display: none; }
@@ -132,10 +210,19 @@ a:hover { text-decoration-color: currentColor; }
   transform-origin: 0 0; will-change: transform; pointer-events: none;
 }
 .graph-ready .name.docked a { pointer-events: auto; }
-.graph-ready .name-slot { display: block; margin-bottom: 1.5rem; }
-.role { font-size: clamp(1.15rem, 2.4vw, 1.5rem); margin: 0 0 0.6rem; max-width: 36ch; line-height: 1.35; }
-.intro { color: var(--muted); max-width: 48ch; margin: 0; }
-.trace { margin-top: 3rem; height: 0; }
+.graph-ready .name-slot { display: block; margin-bottom: 0.5rem; }
+/* The hero line runs right under the name; the trunk turns down from its end, so the role and intro sit to
+   its right like a commit message beside the graph (past the trunk column on phones, past the middle on wide screens). */
+.trace { margin-bottom: 1.75rem; height: 0; }
+.role { font-size: clamp(1.15rem, 2.4vw, 1.5rem); margin: 0 0 0.6rem 72px; max-width: 36ch; line-height: 1.35; }
+.intro { color: var(--muted); max-width: 48ch; margin: 0 0 0 72px; }
+/* While the tree slides in, its trunk crosses this text. The text sits above the tree's lines (the cards are
+   above them too) on a backing in the page colour, so the line goes behind it and comes out the other side
+   instead of running through the words. The box-shadow pads the backing without moving anything. */
+.role, .intro { position: relative; z-index: 1; background: var(--bg); box-shadow: 0 0 0 6px var(--bg); border-radius: 2px; }
+@media (min-width: 860px) {
+  .role, .intro { margin-left: calc(50% + 28px); }
+}
 
 /* fork area */
 .fork { height: 150px; max-width: var(--wrap); margin-inline: auto; position: relative; }
@@ -221,13 +308,16 @@ a:hover { text-decoration-color: currentColor; }
   .entry.sw .meta, .entry.rh .meta { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; padding: 26px 8px 0 0; }
 }
 
-/* reveal (only once the graph script is running) */
-.graph-ready .entry:not(.in):not(:focus-within) .card,
-.graph-ready .entry:not(.in):not(:focus-within) .meta { opacity: 0; transform: translateY(8px); }
+/* reveal (only once the graph script is running). `sh` is the intro's class from the head script, there
+   before first paint; `graph-ready` comes with the script, which arrives later. Without `sh` here the cards
+   and the lane labels were on screen from the first paint until the script came in, then faded away under
+   the typed command. */
+:is(.graph-ready, .sh) .entry:not(.in):not(:focus-within) .card,
+:is(.graph-ready, .sh) .entry:not(.in):not(:focus-within) .meta { opacity: 0; transform: translateY(8px); }
 /* lane labels and the layout toggle stay hidden until the tree has slid into place */
 .fork-labels, .fork-tools { transition: opacity 0.35s var(--ease); }
-.graph-ready .fork:not(.in):not(:focus-within) .fork-labels,
-.graph-ready .fork:not(.in):not(:focus-within) .fork-tools { opacity: 0; pointer-events: none; }
+:is(.graph-ready, .sh) .fork:not(.in):not(:focus-within) .fork-labels,
+:is(.graph-ready, .sh) .fork:not(.in):not(:focus-within) .fork-tools { opacity: 0; pointer-events: none; }
 
 /* merge + outro */
 .merge { height: 140px; max-width: var(--wrap); margin-inline: auto; padding: 0 var(--pad); position: relative; }
