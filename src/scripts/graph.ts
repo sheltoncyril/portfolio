@@ -61,7 +61,7 @@ let pup: ReturnType<typeof createPup> | undefined;
 function init() {
   if (!tree || !svg || !trace || !fork || !merge || !headAnchor || !rows.length) return;
   root.classList.add('graph-ready');
-  pup = createPup(tree, choosePet(location.search, safe(() => localStorage.getItem('pet'))));
+  pup = createPup(tree, choosePet(location.search, safe(() => sessionStorage.getItem('pet'))));
   petSwitch(pup);
   // On a first visit the page plays a typed-command intro (intro.ts); the dog waits for it to finish.
   const intro = runIntro();
@@ -100,7 +100,7 @@ function init() {
 }
 
 // The small button in the top bar that swaps the pet on the line between the dog and the secretary bird. It
-// shows the current pet's face; the choice is kept for next time.
+// shows the current pet's face; a pick is kept for this tab's session (a new visit is a coin flip again).
 function petSwitch(p: ReturnType<typeof createPup>) {
   const b = document.querySelector<HTMLButtonElement>('[data-pet-toggle]');
   if (!b) return;
@@ -115,7 +115,7 @@ function petSwitch(p: ReturnType<typeof createPup>) {
   b.addEventListener('click', () => {
     const next = otherPet(p.pet);
     p.setPet(next);
-    safe(() => localStorage.setItem('pet', next));
+    safe(() => sessionStorage.setItem('pet', next));
     show(next);
   });
 }

@@ -2,34 +2,43 @@ import { describe, expect, it } from 'vitest';
 import { choosePet, otherPet } from './pet';
 
 describe('choosePet', () => {
-  it('is the dog when nothing says otherwise', () => {
-    expect(choosePet('', null)).toBe('dog');
-    expect(choosePet('?layout=lanes', undefined)).toBe('dog');
+  it('is a coin flip when nothing says otherwise: the lower half of the roll is the dog, the upper the bird', () => {
+    expect(choosePet('', null, 0)).toBe('dog');
+    expect(choosePet('', null, 0.499)).toBe('dog');
+    expect(choosePet('', null, 0.5)).toBe('bird');
+    expect(choosePet('', null, 0.999)).toBe('bird');
+    expect(choosePet('?layout=lanes', undefined, 0.9)).toBe('bird');
   });
 
-  it('takes the saved choice', () => {
-    expect(choosePet('', 'bird')).toBe('bird');
-    expect(choosePet('', 'dog')).toBe('dog');
+  it('really is random by default, and gives both pets', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) seen.add(choosePet('', null));
+    expect([...seen].sort()).toEqual(['bird', 'dog']);
+  });
+
+  it('takes the saved choice, whatever the roll', () => {
+    expect(choosePet('', 'bird', 0)).toBe('bird');
+    expect(choosePet('', 'dog', 0.9)).toBe('dog');
   });
 
   it('ignores a saved value that is not a pet', () => {
-    expect(choosePet('', 'cat')).toBe('dog');
-    expect(choosePet('', '')).toBe('dog');
+    expect(choosePet('', 'cat', 0.1)).toBe('dog');
+    expect(choosePet('', '', 0.9)).toBe('bird');
   });
 
-  it('lets the URL win over what was saved', () => {
-    expect(choosePet('?pet=dog', 'bird')).toBe('dog');
-    expect(choosePet('?pet=bird', 'dog')).toBe('bird');
-    expect(choosePet('?bird', 'dog')).toBe('bird');
+  it('lets the URL win over what was saved and over the roll', () => {
+    expect(choosePet('?pet=dog', 'bird', 0.9)).toBe('dog');
+    expect(choosePet('?pet=bird', 'dog', 0.1)).toBe('bird');
+    expect(choosePet('?bird', 'dog', 0.1)).toBe('bird');
   });
 
   it('prefers ?pet= over the bare ?bird', () => {
-    expect(choosePet('?bird&pet=dog', null)).toBe('dog');
+    expect(choosePet('?bird&pet=dog', null, 0.9)).toBe('dog');
   });
 
   it('ignores ?pet= with a value that is not a pet', () => {
-    expect(choosePet('?pet=cat', 'bird')).toBe('bird');
-    expect(choosePet('?pet=cat', null)).toBe('dog');
+    expect(choosePet('?pet=cat', 'bird', 0.1)).toBe('bird');
+    expect(choosePet('?pet=cat', null, 0.1)).toBe('dog');
   });
 });
 
