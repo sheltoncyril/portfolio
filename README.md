@@ -38,6 +38,7 @@ On a first visit in a tab's session the page starts like a terminal: a prompt an
 - `src/scripts/intro.ts` is the behaviour. The timing (`introPlan`, `typingDelays`) and the decision (`shouldRun`) are plain functions; `runIntro` is the thin DOM layer. `graph.ts` calls it and holds the dog until it is over (`pup.hold`).
 - It is progressive enhancement: the HTML is always the finished page. An inline script in `Base.astro` decides before first paint whether to play, and only then puts the class `sh` on `<html>`; the CSS that hides things (`html.sh ...` in `global.css`) lives under that class, which the script removes at the end (or a 5 s watchdog does, if the script never arrives). The typed command is `aria-hidden` and the same text is in a visually hidden span, so screen readers read it once.
 - It does not play with `prefers-reduced-motion`, on a deep link (`#log`, `#contact`), on a reload or back/forward navigation, when the page is restored part-way down, or on a second visit in the same tab's session (`sessionStorage`, key `intro-seen`; it is per tab, so a new tab plays it again). `?intro=0` turns it off and `?intro=1` forces it (except with reduced motion), for testing.
+- Everything that is hidden once the script runs (`.graph-ready`: the cards, the lane labels and the layout toggle until the tree is in place) is hidden under `sh` as well. The module script arrives after the first paint, so if only `.graph-ready` hid them they would be on screen under the empty prompt until it did, then fade away.
 - Nothing changes size or position in the layout while it plays: the parts that print are only transparent (and the role and intro a few px low) until their turn, never `display: none`, so the name is measured and docked exactly as usual. The hero line's path element is kept across the tree's rebuilds, so its drawing-in is not cut short when fonts arrive.
 
 ## The dog
@@ -60,6 +61,14 @@ The name's typeface can be tried out with `?font=instrument | dm | gloock | youn
 - with `prefers-reduced-motion` it just sits on the line and never jumps
 
 To add behaviour, add a state next to the existing ones and have `step()` react to it.
+
+## The other pet
+
+There are two pets, the dog and a secretary bird, and a small round button in the top bar (next to the theme toggle, showing the pet's face; hidden without the script) swaps them on the spot, in a puff. Which one is out when the page loads is a coin flip, so each visit meets either. A pick made with the button is kept for that tab's session (`sessionStorage`, `pet`), so a reload does not flip it back; `?pet=bird` / `?pet=dog` (or just `?bird`) forces one for that visit. The order is URL, then the pick, then the coin flip, and it is `choosePet` in `src/scripts/pet.ts`; `createPup(host, pet)` takes the result and `setPet()` swaps it.
+
+- `src/scripts/bird-art.ts` is the bird's pixel art, with the same pose names as the dog (and a few of its own: `peckA`, `peckB`). It is as wide as the dog and much taller (`H` is 24, against 17: it is mostly legs). The legs are one pixel wide and bend the way a bird's do: the joint you see is the ankle, and points backwards. `pup.ts` and `pup-math.ts` take the sprite's size from the art (`SpriteSize`), defaulting to the dog's, so nothing there assumes 22 x 17
+- it does not hop, it flies: the arc is a flight (`fly` in `ArcFrame`; eased, with a lift in the middle, never above the arc's `top`, and taking longer the further it goes) and the pose alternates `diveA` / `diveB`, the two ends of a wing beat. It flaps on the way down when it pops out from behind the name, too
+- it does not sniff, it pecks. After `HUNGRY_AFTER` seconds without a meal it says "hungry", stops paying attention to the cursor and, the next time it gets somewhere with room, hunts a snake (`hunt` state): it looks at it, raises a foot and stamps; the snake dashes out from under the stamp (`HUNT_DART`, `HUNT_SHIFT`) and it goes after it, once or twice, and the last stamp flattens it. Then a gulp, a little dance, and it is fed (`fedAt`) until it is hungry again. The snake is drawn by `bird-art.ts` (`SNAKE_FRAMES`) and positioned from the clock of the hunt, so the whole thing is a function of how long it has been going
 
 ## Develop
 

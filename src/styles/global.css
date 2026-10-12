@@ -84,6 +84,11 @@ a:hover { text-decoration-color: currentColor; }
 .bar a:hover { color: var(--text); }
 .theme { background: none; border: 1px solid var(--border); color: var(--muted); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 0.9rem; line-height: 1; }
 .theme:hover { color: var(--text); border-color: var(--muted); }
+/* the pet switch: the current pet's face in the same round button, a little quieter */
+.pet { display: inline-flex; align-items: center; justify-content: center; padding: 0; opacity: 0.7; }
+.pet[hidden] { display: none; }
+.pet:hover, .pet:focus-visible { opacity: 1; }
+.pet svg { display: block; }
 @media (max-width: 520px) { .bar nav a:nth-child(1), .bar nav a:nth-child(3), .bar nav a:nth-child(4) { display: none; } .bar nav { gap: 16px; } }
 
 /* tree + svg */
@@ -175,6 +180,10 @@ html.sh .seg.hero { stroke-dashoffset: 1; transition: stroke-dashoffset 0.7s cub
 html.sh.sh-bar .bar, html.sh.sh-name .name { opacity: 1; }
 html.sh.sh-role .role, html.sh.sh-intro .intro { opacity: 1; transform: none; }
 html.sh.sh-line .seg.hero { stroke-dashoffset: 0; }
+/* Until the script has run (`graph-ready`, below) the name is still in the flow with its full bottom margin;
+   once it has, the slot that stands in for it has a smaller one. Use that one from the start, so the prompt
+   doesn't hop down a few pixels the moment the script arrives. */
+html.sh:not(.graph-ready) .name { margin-bottom: 0.5rem; }
 /* The name never wraps, so its size is also capped at what fits between the page's padding (about 4.5em wide
    with its italic): a larger system font size, page zoom or a fallback face can't push it off the screen.
    The right padding is for the italic's overhang: the name is a composited layer once the script runs, and some
@@ -304,13 +313,16 @@ html.sh.sh-line .seg.hero { stroke-dashoffset: 0; }
   .entry.sw .meta, .entry.rh .meta { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; padding: 26px 8px 0 0; }
 }
 
-/* reveal (only once the graph script is running) */
-.graph-ready .entry:not(.in):not(:focus-within) .card,
-.graph-ready .entry:not(.in):not(:focus-within) .meta { opacity: 0; transform: translateY(8px); }
+/* reveal (only once the graph script is running). `sh` is the intro's class from the head script, there
+   before first paint; `graph-ready` comes with the script, which arrives later. Without `sh` here the cards
+   and the lane labels were on screen from the first paint until the script came in, then faded away under
+   the typed command. */
+:is(.graph-ready, .sh) .entry:not(.in):not(:focus-within) .card,
+:is(.graph-ready, .sh) .entry:not(.in):not(:focus-within) .meta { opacity: 0; transform: translateY(8px); }
 /* lane labels and the layout toggle stay hidden until the tree has slid into place */
 .fork-labels, .fork-tools { transition: opacity 0.35s var(--ease); }
-.graph-ready .fork:not(.in):not(:focus-within) .fork-labels,
-.graph-ready .fork:not(.in):not(:focus-within) .fork-tools { opacity: 0; pointer-events: none; }
+:is(.graph-ready, .sh) .fork:not(.in):not(:focus-within) .fork-labels,
+:is(.graph-ready, .sh) .fork:not(.in):not(:focus-within) .fork-tools { opacity: 0; pointer-events: none; }
 
 /* merge + outro */
 .merge { height: 140px; max-width: var(--wrap); margin-inline: auto; padding: 0 var(--pad); position: relative; }

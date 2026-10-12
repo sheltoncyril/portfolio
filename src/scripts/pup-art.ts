@@ -18,11 +18,11 @@ export const W = 22; // body sprite size in art pixels
 export const H = 17;
 const OY = 2; // rows of empty space above the drawing, so the ear tips get an outline
 
-const blank = (w: number, h: number): Grid => Array.from({ length: h }, () => Array<string>(w).fill('.'));
+export const blank = (w: number, h: number): Grid => Array.from({ length: h }, () => Array<string>(w).fill('.'));
 
 // every empty cell that touches a painted one becomes outline (cells outside the grid are skipped, so the
 // row under the feet is left bare on purpose: the dog stands on the line rather than on a dark band)
-function outline(g: Grid): Grid {
+export function outline(g: Grid): Grid {
   const out = g.map((r) => r.slice());
   for (let y = 0; y < g.length; y++) {
     for (let x = 0; x < g[0].length; x++) {

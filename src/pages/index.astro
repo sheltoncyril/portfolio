@@ -18,6 +18,8 @@ const repoUrl = (r: string) => `${site.github}/${r}`;
       <a href="#contact">contact</a>
       <a href={site.blog}>blog</a>
       <a href={site.github}>github</a>
+      {/* the pet on the line: graph.ts shows this (it is hidden without the script) and puts the pet's face in it */}
+      <button class="theme pet" type="button" aria-label="Switch pet" data-pet-toggle hidden></button>
       <button class="theme" type="button" aria-label="Toggle colour theme" data-theme-toggle>
         <span aria-hidden="true">◐</span>
       </button>
